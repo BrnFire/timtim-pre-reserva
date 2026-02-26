@@ -1,244 +1,196 @@
-import re
-from uuid import uuid4
-from datetime import date, time as dtime
+# supabase_rest.py  — cliente REST leve para o APP EXTERNO (público)
+# ---------------------------------------------------------------
+# - Lê SUPABASE_URL / SUPABASE_KEY dos secrets/ambiente
+# - SELECT: normal
+# - INSERT/UPDATE/UPSERT/DELETE: Prefer=return=minimal  (evita SELECT pós-escrita e conflitos com RLS)
+# ---------------------------------------------------------------
 
-import pandas as pd
+import os
+import json
+import mimetypes
+from typing import Any, Dict, List, Optional, Tuple
+
 import requests
-import streamlit as st
-
-# --- Nosso cliente REST leve (arquivo ao lado) ---
-# Certifique-se de ter supabase_rest.py no mesmo diretório, com table_insert return=minimal
-from supabase_rest import table_select, table_insert
 
 
 # =========================
-# Configuração básica
+# Config de ambiente
 # =========================
-st.set_page_config(
-    page_title="Solicite sua Festa | TimTim Festas",
-    page_icon="🎈",
-    layout="centered",
-)
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_KEY")  # ANON key (pública), não use service_role aqui!
 
-st.markdown(
-    """
-    <style>
-      .stForm { background: #fff; border-radius: 10px; padding: 1rem 1.25rem; border: 1px solid #EEE; }
-      .label-strong { font-weight: 600; }
-      .ok-badge { color:#2ecc71; }
-      .warn-badge { color:#f39c12; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown("<h2 style='text-align:center'>🎈 Solicite seu orçamento</h2>", unsafe_allow_html=True)
-st.caption("Preencha seus dados, escolha a data do evento e selecione os brinquedos disponíveis.")
-
-
-# =========================
-# Utilitários
-# =========================
-def normalizar_nome(txt: str) -> str:
-    """Normaliza nome para comparação simples (sem acento/pontuação), igual ao seu fluxo atual."""
-    if not isinstance(txt, str):
-        return ""
-    import unicodedata
-
-    t = unicodedata.normalize("NFKD", txt).encode("ascii", "ignore").decode("utf-8")
-    t = re.sub(r"[^a-zA-Z0-9]+", " ", t)
-    return t.strip().lower()
-
-
-def via_cep(cep: str):
-    """Busca logradouro/bairro/cidade no ViaCEP. Retorna dict ou None."""
-    try:
-        cep_num = re.sub(r"\D", "", str(cep))[:8]
-        if len(cep_num) != 8:
-            return None
-        r = requests.get(f"https://viacep.com.br/ws/{cep_num}/json/", timeout=8)
-        if r.status_code == 200 and "erro" not in r.json():
-            j = r.json()
-            return {
-                "logradouro": j.get("logradouro", ""),
-                "bairro": j.get("bairro", ""),
-                "cidade": j.get("localidade", ""),
-            }
-    except Exception:
-        pass
-    return None
-
-
-def carregar_brinquedos_ativos() -> pd.DataFrame:
-    """Lê 'brinquedos' (status=Disponível) para a vitrine do cliente."""
-    rows = table_select(
-        "brinquedos",
-        select="nome,categoria,status,valor",
-        where={"status": "Disponível"},
-        order=("nome", "asc"),
+if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+    raise RuntimeError(
+        "SUPABASE_URL e/ou SUPABASE_KEY não definidos. "
+        "Configure-os nos Secrets do Streamlit (App → Settings → Secrets) ou como variáveis de ambiente."
     )
-    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["nome", "categoria", "status", "valor"])
-    if "nome" not in df.columns:
-        df["nome"] = ""
-    if "categoria" not in df.columns:
-        df["categoria"] = "Tradicional"
-    if "valor" not in df.columns:
-        df["valor"] = 0.0
-    return df
-
-
-def carregar_reservas_do_dia(d: date) -> pd.DataFrame:
-    """Lê 'reservas' da data (modo simples por dia, como seu fluxo interno atual)."""
-    rows = table_select("reservas", select="data,brinquedos", where={"data": str(d)})
-    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["data", "brinquedos"])
-
-
-def ocupados_no_dia(reservas_df: pd.DataFrame) -> set[str]:
-    """Extrai nomes ocupados (normalizados) com base na coluna textual 'brinquedos'."""
-    ocupados = set()
-    for _, r in reservas_df.iterrows():
-        for pedaco in str(r.get("brinquedos", "")).split(","):
-            nome = pedaco.strip()
-            if not nome:
-                continue
-            n = normalizar_nome(nome)
-            if n:
-                ocupados.add(n)
-    return ocupados
 
 
 # =========================
-# Formulário público
+# Headers base
 # =========================
-with st.form("form_publico"):
-    st.subheader("👤 Seus dados")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        nome = st.text_input("Nome do cliente*", max_chars=120)
-        telefone_raw = st.text_input("Telefone (somente números)*", max_chars=11, placeholder="11999999999")
-        email = st.text_input("Email")
-        rg = st.text_input("RG")
-        cpf = st.text_input("CPF")
-        como = st.text_input("Como conheceu a empresa?")  # conforme seu pedido de label
-
-    with col2:
-        st.markdown("<span class='label-strong'>Endereço</span>", unsafe_allow_html=True)
-        cep = st.text_input("CEP", max_chars=9, placeholder="00000-000")
-        buscar_cep = st.form_submit_button("🔎 Buscar CEP")
-        if buscar_cep:
-            dados = via_cep(cep)
-            if dados:
-                st.session_state["logradouro"] = dados["logradouro"]
-                st.session_state["bairro"] = dados["bairro"]
-                st.session_state["cidade"] = dados["cidade"]
-                st.success("Endereço preenchido automaticamente!")
-            else:
-                st.warning("Não foi possível buscar o CEP. Preencha manualmente.")
-
-        logradouro = st.text_input("Logradouro", value=st.session_state.get("logradouro", ""))
-        numero = st.text_input("Número")
-        complemento = st.text_input("Complemento")
-        bairro = st.text_input("Bairro", value=st.session_state.get("bairro", ""))
-        cidade = st.text_input("Cidade", value=st.session_state.get("cidade", ""))
-
-    observacao = st.text_area("Observação (opcional)")
-
-    st.subheader("🎉 Dados do evento")
-    data_evento = st.date_input("Data*", value=date.today())
-    c3, c4 = st.columns(2)
-    with c3:
-        hora_inicio = st.time_input("Horário início", value=dtime(hour=13, minute=0))
-    with c4:
-        hora_fim = st.time_input("Horário fim", value=dtime(hour=17, minute=0))
-
-    st.subheader("🎠 Escolha seus brinquedos")
-    brinquedos_df = carregar_brinquedos_ativos()
-    reservas_df = carregar_reservas_do_dia(data_evento)
-    ocup = ocupados_no_dia(reservas_df)
-
-    if not brinquedos_df.empty:
-        brinquedos_df["nome_norm"] = brinquedos_df["nome"].apply(normalizar_nome)
-        livres_df = brinquedos_df[~brinquedos_df["nome_norm"].isin(ocup)].copy()
-    else:
-        livres_df = brinquedos_df.copy()
-
-    if livres_df.empty:
-        st.info("🤷‍♀️ Nesta data todos os brinquedos estão reservados. Experimente outra data.")
-        itens_selecionados = []
-    else:
-        lista = sorted(livres_df["nome"].tolist(), key=str.lower)
-        itens_selecionados = st.multiselect(
-            "Brinquedos disponíveis para a data escolhida*",
-            options=lista,
-        )
-
-    enviado = st.form_submit_button("💾 Enviar solicitação")
-
-
-# =========================
-# Envio (INSERT nas tabelas 'pre_*')
-# =========================
-if enviado:
-    # --- Validações mínimas ---
-    erros = []
-    if not nome:
-        erros.append("Informe seu nome.")
-    if not telefone_raw:
-        erros.append("Informe o telefone.")
-    if not data_evento:
-        erros.append("Informe a data do evento.")
-    if not itens_selecionados:
-        erros.append("Selecione pelo menos 1 brinquedo.")
-
-    if erros:
-        st.error("⚠️ Corrija os campos:\n\n- " + "\n- ".join(erros))
-        st.stop()
-
-    # --- Normalizações ---
-    telefone = re.sub(r"\D", "", str(telefone_raw))
-
-    # --- Gere o ID aqui (evita depender de retorno do insert) ---
-    pre_id = str(uuid4())
-
-    # --- Monta payload para pre_reservas ---
-    registro = {
-        "id": pre_id,  # usamos o mesmo id para relacionar os itens
-        "nome": nome.strip(),
-        "telefone": telefone,
-        "email": (email or "").strip(),
-        "rg": (rg or "").strip(),
-        "cpf": (cpf or "").strip(),
-        "como_conheceu": (como or "").strip(),
-        "cep": (cep or "").strip(),
-        "logradouro": (logradouro or "").strip(),
-        "numero": (numero or "").strip(),
-        "complemento": (complemento or "").strip(),
-        "bairro": (bairro or "").strip(),
-        "cidade": (cidade or "").strip(),
-        "observacao": (observacao or "").strip(),
-        "data": str(data_evento),  # YYYY-MM-DD
-        "hora_inicio": str(hora_inicio) if hora_inicio else None,  # HH:MM:SS
-        "hora_fim": str(hora_fim) if hora_fim else None,          # HH:MM:SS
+def _headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    base = {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        # Padrão seguro. Para SELECT isso não interfere; para escrita, sobrescrevemos para "return=minimal".
+        "Prefer": "return=representation",
     }
+    if extra:
+        base.update(extra)
+    return base
 
+
+# =========================
+# Helpers HTTP
+# =========================
+def _raise(r: requests.Response, op: str, table: str):
+    """Levanta erro com mensagem completa do PostgREST."""
     try:
-        # 1) Insere a pré-reserva (sem depender de retorno — return=minimal)
-        table_insert("pre_reservas", [registro])
+        # Muitas vezes o PostgREST devolve JSON com 'message', 'hint', etc.
+        detail = r.text
+    except Exception:
+        detail = f"status={r.status_code}"
+    raise RuntimeError(f"[{op}] {table}: {r.status_code} {detail}")
 
-        # 2) Insere os itens associados
-        itens_rows = [{"pre_reserva_id": pre_id, "brinquedo": nome_b, "quantidade": 1} for nome_b in itens_selecionados]
-        if itens_rows:
-            table_insert("pre_reserva_itens", itens_rows)
 
-        # Feedback
-        st.success("✅ Solicitação enviada! Em breve entraremos em contato para confirmar.")
-        st.balloons()
+# =========================
+# SELECT
+# =========================
+def table_select(
+    table: str,
+    select: str = "*",
+    where: Optional[Dict[str, Any]] = None,
+    limit: Optional[int] = None,
+    order: Optional[Tuple[str, str]] = None,  # ("coluna", "asc" | "desc")
+) -> List[Dict[str, Any]]:
+    """
+    Leitura simples via PostgREST.
+    Ex.: table_select("brinquedos", select="nome,valor", where={"status":"Disponível"}, order=("nome","asc"))
+    """
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    params: Dict[str, str] = {"select": select}
 
-        # Opcional: limpar estado de endereço para próximos envios
-        for k in ("logradouro", "bairro", "cidade"):
-            st.session_state.pop(k, None)
+    if where:
+        # PostgREST: col=eq.<valor>
+        for col, val in where.items():
+            params[col] = f"eq.{val}"
 
-    except Exception as e:
-        st.error(f"❌ Erro ao enviar sua solicitação: {e}")
-``
+    if limit is not None:
+        params["limit"] = str(limit)
+
+    if order is not None:
+        col, direc = order
+        params["order"] = f"{col}.{direc}"
+
+    r = requests.get(url, headers=_headers(), params=params, timeout=20)
+    if r.status_code in (200, 206):
+        return r.json() if r.text else []
+    _raise(r, "select", table)
+
+
+# =========================
+# INSERT  (Prefer: return=minimal)
+# =========================
+def table_insert(table: str, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Insere linhas.
+    => Prefer: return=minimal evita SELECT pós-insert (que seria bloqueado pela RLS se você não abriu SELECT para 'anon').
+    """
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    hdrs = _headers({"Prefer": "return=minimal"})
+    r = requests.post(url, headers=hdrs, data=json.dumps(rows), timeout=25)
+    if r.status_code in (200, 201, 204):
+        # 'minimal' normalmente não retorna corpo
+        return []
+    _raise(r, "insert", table)
+
+
+# =========================
+# UPSERT  (Prefer: resolution=merge-duplicates + return=minimal)
+# =========================
+def table_upsert(table: str, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Upsert (merge-duplicates) com retorno mínimo (não tenta ler após escrever).
+    Requer PK/unique no Postgres para identificar duplicidade.
+    """
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    hdrs = _headers({"Prefer": "resolution=merge-duplicates,return=minimal"})
+    r = requests.post(url, headers=hdrs, data=json.dumps(rows), timeout=25)
+    if r.status_code in (200, 201, 204):
+        return []
+    _raise(r, "upsert", table)
+
+
+# =========================
+# UPDATE  (Prefer: return=minimal)
+# =========================
+def table_update(
+    table: str,
+    where: Dict[str, Any],
+    values: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """
+    Atualiza linhas que casem com 'where'.
+    Retorno mínimo para não acionar SELECT pós-update.
+    """
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    params: Dict[str, str] = {}
+    for col, val in where.items():
+        params[col] = f"eq.{val}"
+
+    hdrs = _headers({"Prefer": "return=minimal"})
+    r = requests.patch(url, headers=hdrs, params=params, data=json.dumps(values), timeout=25)
+    if r.status_code in (200, 204):
+        return []
+    _raise(r, "update", table)
+
+
+# =========================
+# DELETE  (Prefer: return=minimal)
+# =========================
+def table_delete(table: str, where: Dict[str, Any]) -> int:
+    """
+    Deleta linhas. Retorna a contagem estimada (ou 0).
+    """
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    params: Dict[str, str] = {}
+    for col, val in where.items():
+        params[col] = f"eq.{val}"
+
+    hdrs = _headers({"Prefer": "return=minimal"})
+    r = requests.delete(url, headers=hdrs, params=params, timeout=20)
+    if r.status_code in (200, 204):
+        # como é 'minimal', pode não haver corpo
+        try:
+            js = r.json()
+            return len(js) if isinstance(js, list) else 0
+        except Exception:
+            return 0
+    _raise(r, "delete", table)
+
+
+# =========================
+# STORAGE (opcional)
+# =========================
+def storage_upload(bucket: str, local_path: str, dest_path: str) -> Dict[str, Any]:
+    """
+    Upload para Storage. É preciso que o bucket permita upload com ANON key (policies no Storage).
+    """
+    url = f"{SUPABASE_URL}/storage/v1/object/{bucket}/{dest_path}"
+    mime, _ = mimetypes.guess_type(local_path)
+    mime = mime or "application/octet-stream"
+    with open(local_path, "rb") as f:
+        r = requests.post(url, headers=_headers({"Content-Type": mime}), data=f, timeout=60)
+    if r.status_code in (200, 201):
+        return r.json() if r.text else {"path": dest_path}
+    _raise(r, "storage_upload", f"{bucket}/{dest_path}")
+
+
+def storage_public_url(bucket: str, path: str) -> str:
+    """
+    Retorna a URL pública do objeto (se o bucket estiver como público).
+    """
+    return f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{path}"
