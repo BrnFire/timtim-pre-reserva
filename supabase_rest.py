@@ -53,13 +53,6 @@ def table_select(
         return r.json()
     raise RuntimeError(f"[select] {table}: {r.status_code} {r.text}")
 
-def table_insert(table: str, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    r = requests.post(url, headers=_headers(), data=json.dumps(rows), timeout=15)
-    if r.status_code in (200, 201):
-        return r.json() if r.text else []
-    raise RuntimeError(f"[insert] {table}: {r.status_code} {r.text}")
-
 def table_upsert(table: str, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     # Para upsert, use Prefer: resolution=merge-duplicates (depende de PK/unique)
@@ -153,6 +146,7 @@ def import_csv_to_table(table: str, csv_path: str, normalize_headers: bool = Tru
         table_insert(table, chunk)
         total += len(chunk)
     return total
+
 
 
 
