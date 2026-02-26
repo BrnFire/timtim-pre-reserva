@@ -241,4 +241,3 @@ if enviado:
 
     except Exception as e:
         st.error(f"❌ Erro ao enviar sua solicitação: {e}")
-``
