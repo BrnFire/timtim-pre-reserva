@@ -1,32 +1,59 @@
-import streamlit as st
+import re
+from uuid import uuid4
+from datetime import date, time as dtime
+
 import pandas as pd
 import requests
-import re
-from datetime import date, time as dtime
+import streamlit as st
+
+# --- Nosso cliente REST leve (arquivo ao lado) ---
+# Certifique-se de ter supabase_rest.py no mesmo diretório, com table_insert return=minimal
 from supabase_rest import table_select, table_insert
 
-st.set_page_config(page_title="Solicite sua Festa | TimTim Festas", page_icon="🎈", layout="centered")
 
-# ---------------------------
-# Estilos e cabeçalho
-# ---------------------------
+# =========================
+# Configuração básica
+# =========================
+st.set_page_config(
+    page_title="Solicite sua Festa | TimTim Festas",
+    page_icon="🎈",
+    layout="centered",
+)
+
+st.markdown(
+    """
+    <style>
+      .stForm { background: #fff; border-radius: 10px; padding: 1rem 1.25rem; border: 1px solid #EEE; }
+      .label-strong { font-weight: 600; }
+      .ok-badge { color:#2ecc71; }
+      .warn-badge { color:#f39c12; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.markdown("<h2 style='text-align:center'>🎈 Solicite seu orçamento</h2>", unsafe_allow_html=True)
-st.caption("Preencha seus dados e escolha a data e os brinquedos. Nós confirmaremos por WhatsApp/E-mail.")
+st.caption("Preencha seus dados, escolha a data do evento e selecione os brinquedos disponíveis.")
 
-# ---------------------------
+
+# =========================
 # Utilitários
-# ---------------------------
+# =========================
 def normalizar_nome(txt: str) -> str:
+    """Normaliza nome para comparação simples (sem acento/pontuação), igual ao seu fluxo atual."""
     if not isinstance(txt, str):
         return ""
     import unicodedata
+
     t = unicodedata.normalize("NFKD", txt).encode("ascii", "ignore").decode("utf-8")
     t = re.sub(r"[^a-zA-Z0-9]+", " ", t)
     return t.strip().lower()
 
+
 def via_cep(cep: str):
+    """Busca logradouro/bairro/cidade no ViaCEP. Retorna dict ou None."""
     try:
-        cep_num = re.sub(r"\D", "", cep)[:8]
+        cep_num = re.sub(r"\D", "", str(cep))[:8]
         if len(cep_num) != 8:
             return None
         r = requests.get(f"https://viacep.com.br/ws/{cep_num}/json/", timeout=8)
@@ -35,56 +62,71 @@ def via_cep(cep: str):
             return {
                 "logradouro": j.get("logradouro", ""),
                 "bairro": j.get("bairro", ""),
-                "cidade": j.get("localidade", "")
+                "cidade": j.get("localidade", ""),
             }
     except Exception:
         pass
     return None
 
-def carregar_brinquedos_ativos():
-    # Usa sua tabela 'brinquedos' como hoje
-    rows = table_select("brinquedos", select="nome,categoria,status,valor", where={"status": "Disponível"})
-    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["nome","categoria","status","valor"])
-    # padroniza
-    if "nome" not in df.columns: df["nome"] = ""
-    if "categoria" not in df.columns: df["categoria"] = "Tradicional"
-    if "valor" not in df.columns: df["valor"] = 0.0
+
+def carregar_brinquedos_ativos() -> pd.DataFrame:
+    """Lê 'brinquedos' (status=Disponível) para a vitrine do cliente."""
+    rows = table_select(
+        "brinquedos",
+        select="nome,categoria,status,valor",
+        where={"status": "Disponível"},
+        order=("nome", "asc"),
+    )
+    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["nome", "categoria", "status", "valor"])
+    if "nome" not in df.columns:
+        df["nome"] = ""
+    if "categoria" not in df.columns:
+        df["categoria"] = "Tradicional"
+    if "valor" not in df.columns:
+        df["valor"] = 0.0
     return df
 
-def carregar_reservas_do_dia(d: date):
+
+def carregar_reservas_do_dia(d: date) -> pd.DataFrame:
+    """Lê 'reservas' da data (modo simples por dia, como seu fluxo interno atual)."""
     rows = table_select("reservas", select="data,brinquedos", where={"data": str(d)})
-    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["data","brinquedos"])
-    return df
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["data", "brinquedos"])
+
 
 def ocupados_no_dia(reservas_df: pd.DataFrame) -> set[str]:
-    # Lógica igual à sua (por nome). Se "Pula-Pula 01" está na string daquele dia, ele é considerado ocupado.
+    """Extrai nomes ocupados (normalizados) com base na coluna textual 'brinquedos'."""
     ocupados = set()
     for _, r in reservas_df.iterrows():
-        for pedaco in str(r.get("brinquedos","")).split(","):
+        for pedaco in str(r.get("brinquedos", "")).split(","):
             nome = pedaco.strip()
-            if not nome: 
+            if not nome:
                 continue
             n = normalizar_nome(nome)
             if n:
                 ocupados.add(n)
     return ocupados
 
-# ---------------------------
-# Formulário
-# ---------------------------
+
+# =========================
+# Formulário público
+# =========================
 with st.form("form_publico"):
     st.subheader("👤 Seus dados")
+
     col1, col2 = st.columns(2)
     with col1:
         nome = st.text_input("Nome do cliente*", max_chars=120)
-        telefone = st.text_input("Telefone (somente números)*", max_chars=11)
+        telefone_raw = st.text_input("Telefone (somente números)*", max_chars=11, placeholder="11999999999")
         email = st.text_input("Email")
         rg = st.text_input("RG")
         cpf = st.text_input("CPF")
-        como = st.text_input("Como conheceu a empresa?")  # alterada a label conforme pedido
+        como = st.text_input("Como conheceu a empresa?")  # conforme seu pedido de label
+
     with col2:
+        st.markdown("<span class='label-strong'>Endereço</span>", unsafe_allow_html=True)
         cep = st.text_input("CEP", max_chars=9, placeholder="00000-000")
-        if st.form_submit_button("Buscar CEP"):
+        buscar_cep = st.form_submit_button("🔎 Buscar CEP")
+        if buscar_cep:
             dados = via_cep(cep)
             if dados:
                 st.session_state["logradouro"] = dados["logradouro"]
@@ -94,11 +136,12 @@ with st.form("form_publico"):
             else:
                 st.warning("Não foi possível buscar o CEP. Preencha manualmente.")
 
-        logradouro = st.text_input("Logradouro", value=st.session_state.get("logradouro",""))
+        logradouro = st.text_input("Logradouro", value=st.session_state.get("logradouro", ""))
         numero = st.text_input("Número")
         complemento = st.text_input("Complemento")
-        bairro = st.text_input("Bairro", value=st.session_state.get("bairro",""))
-        cidade = st.text_input("Cidade", value=st.session_state.get("cidade",""))
+        bairro = st.text_input("Bairro", value=st.session_state.get("bairro", ""))
+        cidade = st.text_input("Cidade", value=st.session_state.get("cidade", ""))
+
     observacao = st.text_area("Observação (opcional)")
 
     st.subheader("🎉 Dados do evento")
@@ -110,76 +153,92 @@ with st.form("form_publico"):
         hora_fim = st.time_input("Horário fim", value=dtime(hour=17, minute=0))
 
     st.subheader("🎠 Escolha seus brinquedos")
-    # Disponibilidade por DIA (igual ao seu app interno)
     brinquedos_df = carregar_brinquedos_ativos()
     reservas_df = carregar_reservas_do_dia(data_evento)
     ocup = ocupados_no_dia(reservas_df)
-    # filtra os livres
+
     if not brinquedos_df.empty:
         brinquedos_df["nome_norm"] = brinquedos_df["nome"].apply(normalizar_nome)
-        livres = brinquedos_df[~brinquedos_df["nome_norm"].isin(ocup)].copy()
+        livres_df = brinquedos_df[~brinquedos_df["nome_norm"].isin(ocup)].copy()
     else:
-        livres = brinquedos_df.copy()
+        livres_df = brinquedos_df.copy()
 
-    if livres.empty:
-        st.info("Nesta data todos os brinquedos estão reservados. Experimente outra data.")
+    if livres_df.empty:
+        st.info("🤷‍♀️ Nesta data todos os brinquedos estão reservados. Experimente outra data.")
         itens_selecionados = []
     else:
-        lista = sorted(livres["nome"].tolist(), key=str.lower)
-        itens_selecionados = st.multiselect("Brinquedos disponíveis para a data escolhida*", options=lista)
+        lista = sorted(livres_df["nome"].tolist(), key=str.lower)
+        itens_selecionados = st.multiselect(
+            "Brinquedos disponíveis para a data escolhida*",
+            options=lista,
+        )
 
     enviado = st.form_submit_button("💾 Enviar solicitação")
 
-# ---------------------------
-# Gravação (INSERT apenas em tabelas 'pre_*')
-# ---------------------------
+
+# =========================
+# Envio (INSERT nas tabelas 'pre_*')
+# =========================
 if enviado:
-    # validações mínimas
+    # --- Validações mínimas ---
     erros = []
-    if not (nome and telefone and data_evento and itens_selecionados):
-        if not nome: erros.append("Informe seu nome.")
-        if not telefone: erros.append("Informe o telefone.")
-        if not data_evento: erros.append("Informe a data do evento.")
-        if not itens_selecionados: erros.append("Selecione pelo menos 1 brinquedo.")
+    if not nome:
+        erros.append("Informe seu nome.")
+    if not telefone_raw:
+        erros.append("Informe o telefone.")
+    if not data_evento:
+        erros.append("Informe a data do evento.")
+    if not itens_selecionados:
+        erros.append("Selecione pelo menos 1 brinquedo.")
+
     if erros:
-        st.error("⚠️ Corrija os campos:\n- " + "\n- ".join(erros))
+        st.error("⚠️ Corrija os campos:\n\n- " + "\n- ".join(erros))
         st.stop()
 
-    # monta o registro principal
+    # --- Normalizações ---
+    telefone = re.sub(r"\D", "", str(telefone_raw))
+
+    # --- Gere o ID aqui (evita depender de retorno do insert) ---
+    pre_id = str(uuid4())
+
+    # --- Monta payload para pre_reservas ---
     registro = {
+        "id": pre_id,  # usamos o mesmo id para relacionar os itens
         "nome": nome.strip(),
-        "telefone": re.sub(r"\D", "", telefone),
-        "email": email.strip(),
-        "rg": rg.strip(),
-        "cpf": cpf.strip(),
-        "como_conheceu": como.strip(),
-        "cep": cep.strip(),
-        "logradouro": logradouro.strip(),
-        "numero": numero.strip(),
-        "complemento": complemento.strip(),
-        "bairro": bairro.strip(),
-        "cidade": cidade.strip(),
-        "observacao": observacao.strip(),
-        "data": str(data_evento),
-        "hora_inicio": str(hora_inicio) if hora_inicio else None,
-        "hora_fim": str(hora_fim) if hora_fim else None,
+        "telefone": telefone,
+        "email": (email or "").strip(),
+        "rg": (rg or "").strip(),
+        "cpf": (cpf or "").strip(),
+        "como_conheceu": (como or "").strip(),
+        "cep": (cep or "").strip(),
+        "logradouro": (logradouro or "").strip(),
+        "numero": (numero or "").strip(),
+        "complemento": (complemento or "").strip(),
+        "bairro": (bairro or "").strip(),
+        "cidade": (cidade or "").strip(),
+        "observacao": (observacao or "").strip(),
+        "data": str(data_evento),  # YYYY-MM-DD
+        "hora_inicio": str(hora_inicio) if hora_inicio else None,  # HH:MM:SS
+        "hora_fim": str(hora_fim) if hora_fim else None,          # HH:MM:SS
     }
 
     try:
-        # 1) cria pre_reserva
-        created = table_insert("pre_reservas", [registro])   # Prefer: return=representation já está no seu supabase_rest
-        pre_id = created[0]["id"]
+        # 1) Insere a pré-reserva (sem depender de retorno — return=minimal)
+        table_insert("pre_reservas", [registro])
 
-        # 2) cria os itens
+        # 2) Insere os itens associados
         itens_rows = [{"pre_reserva_id": pre_id, "brinquedo": nome_b, "quantidade": 1} for nome_b in itens_selecionados]
         if itens_rows:
             table_insert("pre_reserva_itens", itens_rows)
 
+        # Feedback
         st.success("✅ Solicitação enviada! Em breve entraremos em contato para confirmar.")
         st.balloons()
 
-        # opcional: limpa estado
-        st.session_state.clear()
+        # Opcional: limpar estado de endereço para próximos envios
+        for k in ("logradouro", "bairro", "cidade"):
+            st.session_state.pop(k, None)
 
     except Exception as e:
         st.error(f"❌ Erro ao enviar sua solicitação: {e}")
+``
