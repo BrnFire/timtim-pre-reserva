@@ -18,7 +18,7 @@ st.set_page_config(
     layout="centered",
 )
 
-st.markdown("<h2 style='text-align:center'>🎈 Solicite seu orçamento</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align:center'>🎈 Cadastro</h2>", unsafe_allow_html=True)
 
 
 # =========================
