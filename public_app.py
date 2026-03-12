@@ -137,6 +137,14 @@ with st.form("form_publico"):
         complemento = st.text_input("Complemento")
         bairro = st.text_input("Bairro", value=st.session_state.get("bairro", ""))
         cidade = st.text_input("Cidade", value=st.session_state.get("cidade", ""))
+        
+        st.subheader("🎉 Informações do Evento")
+
+        ocasiao = st.text_input("Ocasião (Festa infantil, festa adulto, chá de bebê, corporativo, etc):")
+        tema = st.text_input("Tema:")
+        nome_aniv = st.text_input("Nome do aniversariante (Se houver):")
+        idade = st.text_input("Idade da criança ou adulto:")
+
 
     observacao = st.text_area("Observação")
 
@@ -204,6 +212,13 @@ if enviado:
         "hora_inicio": str(hora_inicio),
         "hora_fim": str(hora_fim),
         "brinquedos": brinquedos_texto  # 🔥 SALVA TUDO EM UMA COLUNA
+        
+        # ⭐ Novos campos
+        "ocasiao": ocasiao,
+        "tema": tema,
+        "nome_aniv": nome_aniv,
+        "idade": idade
+
     }
 
     try:
