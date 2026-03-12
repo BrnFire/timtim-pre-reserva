@@ -211,9 +211,8 @@ if enviado:
         "data": str(data_evento),
         "hora_inicio": str(hora_inicio),
         "hora_fim": str(hora_fim),
-        "brinquedos": brinquedos_texto  # 🔥 SALVA TUDO EM UMA COLUNA
-        
-        # ⭐ Novos campos
+        "brinquedos": brinquedos_texto,  # 🔥 SALVA TUDO EM UMA COLUNA
+                # ⭐ Novos campos
         "ocasiao": ocasiao,
         "tema": tema,
         "nome_aniv": nome_aniv,
