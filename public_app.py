@@ -54,15 +54,15 @@ def via_cep(cep: str):
 def carregar_brinquedos():
     rows = table_select(
         "brinquedos",
-        select="nome,status",
+        columns="nome,status",
         where={"status": "Disponível"},
-        order=("nome", "asc"),
+        order=("nome", True),
     )
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["nome", "status"])
 
 
 def carregar_reservas_do_dia(d):
-    rows = table_select("reservas", select="data,brinquedos", where={"data": str(d)})
+    rows = table_select("reservas", columns="data,brinquedos", where={"data": str(d)})
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["data", "brinquedos"])
 
 
@@ -74,6 +74,15 @@ def ocupados_no_dia(df):
             if nome:
                 ocupados.add(normalizar_nome(nome))
     return ocupados
+
+
+# =========================
+# STATE INICIAL (CONFIRMAÇÃO)
+# =========================
+if "pre_confirma_pendente" not in st.session_state:
+    st.session_state["pre_confirma_pendente"] = False
+if "pre_confirma_registro" not in st.session_state:
+    st.session_state["pre_confirma_registro"] = None
 
 
 # =========================
@@ -137,14 +146,13 @@ with st.form("form_publico"):
         complemento = st.text_input("Complemento")
         bairro = st.text_input("Bairro", value=st.session_state.get("bairro", ""))
         cidade = st.text_input("Cidade", value=st.session_state.get("cidade", ""))
-        
+
         st.subheader("🎉 Informações do Evento")
 
         ocasiao = st.text_input("Ocasião (Festa infantil, festa adulto, chá de bebê, corporativo, etc):")
         tema = st.text_input("Tema:")
         nome_aniv = st.text_input("Nome do aniversariante (Se houver):")
         idade = st.text_input("Idade da criança ou adulto:")
-
 
     observacao = st.text_area("Observação")
 
@@ -168,13 +176,14 @@ with st.form("form_publico"):
             options=lista
         )
 
-    enviado = st.form_submit_button("💾 Enviar solicitação")
+    # botão do formulário – agora só valida e vai para a confirmação
+    enviar_clicado = st.form_submit_button("💾 Enviar solicitação")
 
 
 # =========================
-# ENVIO
+# ENVIO — ETAPA 1: VALIDAR + PREPARAR CONFIRMAÇÃO
 # =========================
-if enviado:
+if enviar_clicado and not st.session_state.get("pre_confirma_pendente", False):
 
     erros = []
     if not nome:
@@ -189,8 +198,6 @@ if enviado:
         st.stop()
 
     telefone = re.sub(r"\D", "", telefone_raw)
-
-    # 🔥 Junta brinquedos igual seu app interno
     brinquedos_texto = ", ".join(itens_selecionados)
 
     registro = {
@@ -212,17 +219,77 @@ if enviado:
         "hora_inicio": str(hora_inicio),
         "hora_fim": str(hora_fim),
         "brinquedos": brinquedos_texto,  # 🔥 SALVA TUDO EM UMA COLUNA
-                # ⭐ Novos campos
+        # ⭐ Novos campos
         "ocasiao": ocasiao,
         "tema": tema,
         "nome_aniv": nome_aniv,
-        "idade": idade
-
+        "idade": idade,
+        "status": "Pendente",   # garante status padrão
     }
 
-    try:
-        table_insert("pre_reservas", [registro])
-        st.success("✅ Solicitação enviada com sucesso!")
-        st.balloons()
-    except Exception as e:
-        st.error(f"Erro ao enviar: {e}")
+    # === CONFIRMAÇÃO: guarda no state e ativa a tela de confirmação ===
+    st.session_state["pre_confirma_registro"] = registro
+    st.session_state["pre_confirma_pendente"] = True
+    st.experimental_rerun()   # recarrega para exibir a seção de confirmação
+
+
+# =========================
+# ENVIO — ETAPA 2: TELA DE CONFIRMAÇÃO
+# =========================
+if st.session_state.get("pre_confirma_pendente", False):
+    reg = st.session_state.get("pre_confirma_registro", {}) or {}
+
+    st.markdown("---")
+    st.subheader("✅ Confirme as informações antes de enviar")
+
+    # Resumo visual dos brinquedos e horários
+    with st.container():
+        colA, colB = st.columns(2)
+        with colA:
+            st.markdown("**Data do evento:** " + str(reg.get("data", "")))
+            st.markdown("**Horário:** " + f"{reg.get('hora_inicio','')} – {reg.get('hora_fim','')}")
+            st.markdown("**Cliente:** " + (reg.get("nome") or ""))
+            st.markdown("**Contato:** " + (reg.get("telefone") or ""))
+            st.markdown("**CPF:** " + (reg.get("cpf") or ""))
+        with colB:
+            st.markdown("**Endereço:** " + " ".join([
+                str(reg.get("logradouro") or ""),
+                str(reg.get("numero") or ""),
+                str(reg.get("bairro") or ""),
+                str(reg.get("cidade") or ""),
+                str(reg.get("cep") or ""),
+            ]).strip())
+        st.markdown("**🎠 Brinquedos selecionados:**")
+        if reg.get("brinquedos"):
+            itens = [x.strip() for x in str(reg.get("brinquedos")).split(",") if x.strip()]
+            st.write(", ".join(itens))
+        else:
+            st.write("—")
+
+        if reg.get("observacao"):
+            st.markdown("**Observação:**")
+            st.write(reg.get("observacao"))
+
+    st.info("Se algo estiver incorreto, clique em **Voltar e editar** para ajustar antes do envio.")
+
+    colC1, colC2 = st.columns(2)
+    confirmar = colC1.button("✅ Confirmar envio", type="primary")
+    voltar = colC2.button("🔙 Voltar e editar")
+
+    # Se voltar, apenas limpa o state e volta ao formulário
+    if voltar:
+        st.session_state["pre_confirma_pendente"] = False
+        st.session_state["pre_confirma_registro"] = None
+        st.success("Você pode ajustar suas informações e enviar novamente.")
+        st.stop()
+
+    # Se confirmar, envia ao banco
+    if confirmar:
+        try:
+            table_insert("pre_reservas", [reg])
+            st.session_state["pre_confirma_pendente"] = False
+            st.session_state["pre_confirma_registro"] = None
+            st.success("✅ Solicitação enviada com sucesso!")
+            st.balloons()
+        except Exception as e:
+            st.error(f"Erro ao enviar: {e}")
