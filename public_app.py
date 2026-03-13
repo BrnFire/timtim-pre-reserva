@@ -52,18 +52,16 @@ def via_cep(cep: str):
 
 
 def carregar_brinquedos():
-    # ✅ use 'select' (seu wrapper espera 'select', não 'columns')
     rows = table_select(
         "brinquedos",
         select="nome,status",
         where={"status": "Disponível"},
-        order=("nome", "asc"),  # mantém seu padrão original
+        order=("nome", "asc"),
     )
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["nome", "status"])
 
 
 def carregar_reservas_do_dia(d):
-    # ✅ use 'select' aqui também
     rows = table_select("reservas", select="data,brinquedos", where={"data": str(d)})
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["data", "brinquedos"])
 
@@ -79,12 +77,10 @@ def ocupados_no_dia(df):
 
 
 # =========================
-# STATE INICIAL (CONFIRMAÇÃO)
+# STATE
 # =========================
-if "pre_confirma_pendente" not in st.session_state:
-    st.session_state["pre_confirma_pendente"] = False
-if "pre_confirma_registro" not in st.session_state:
-    st.session_state["pre_confirma_registro"] = None
+if "pre_confirm_payload" not in st.session_state:
+    st.session_state.pre_confirm_payload = None
 
 
 # =========================
@@ -100,7 +96,6 @@ data_evento = st.date_input(
 
 reservas_df = carregar_reservas_do_dia(data_evento)
 ocupados = ocupados_no_dia(reservas_df)
-
 brinquedos_df = carregar_brinquedos()
 
 if not brinquedos_df.empty:
@@ -174,15 +169,14 @@ with st.form("form_publico"):
             options=lista
         )
 
-    # Agora o botão "Enviar" apenas valida e vai para a confirmação
+    # Botão "Enviar": apenas valida e abre MODAL
     enviar_clicado = st.form_submit_button("💾 Enviar solicitação")
 
 
 # =========================
-# ENVIO — ETAPA 1: VALIDAR + PREPARAR CONFIRMAÇÃO
+# VALIDAR + ABRIR MODAL
 # =========================
-if enviar_clicado and not st.session_state.get("pre_confirma_pendente", False):
-
+if enviar_clicado:
     erros = []
     if not nome:
         erros.append("Informe seu nome.")
@@ -190,7 +184,6 @@ if enviar_clicado and not st.session_state.get("pre_confirma_pendente", False):
         erros.append("Informe o telefone.")
     if not itens_selecionados:
         erros.append("Selecione pelo menos 1 brinquedo.")
-
     if erros:
         st.error("⚠️ Corrija os campos:\n\n- " + "\n- ".join(erros))
         st.stop()
@@ -198,7 +191,7 @@ if enviar_clicado and not st.session_state.get("pre_confirma_pendente", False):
     telefone = re.sub(r"\D", "", telefone_raw)
     brinquedos_texto = ", ".join(itens_selecionados)
 
-    registro = {
+    st.session_state.pre_confirm_payload = {
         "id": str(uuid4()),
         "nome": nome.strip(),
         "telefone": telefone,
@@ -217,74 +210,66 @@ if enviar_clicado and not st.session_state.get("pre_confirma_pendente", False):
         "hora_inicio": str(hora_inicio),
         "hora_fim": str(hora_fim),
         "brinquedos": brinquedos_texto,
-        # Extras (sem mexer em status; Supabase já define Pendente)
         "ocasiao": ocasiao,
         "tema": tema,
         "nome_aniv": nome_aniv,
         "idade": idade,
     }
 
-    # Liga a CONFIRMAÇÃO
-    st.session_state["pre_confirma_registro"] = registro
-    st.session_state["pre_confirma_pendente"] = True
-    st.rerun()
+    # Abre o modal
+    open_confirm_dialog()
 
 
 # =========================
-# ENVIO — ETAPA 2: TELA DE CONFIRMAÇÃO
+# MODAL (st.dialog)
 # =========================
-if st.session_state.get("pre_confirma_pendente", False):
-    reg = st.session_state.get("pre_confirma_registro", {}) or {}
+@st.dialog("Confirmar solicitação", width="large")
+def open_confirm_dialog():
+    reg = st.session_state.get("pre_confirm_payload") or {}
 
-    st.markdown("---")
-    st.subheader("✅ Confirme as informações antes de enviar")
+    st.markdown("Confira as informações antes de enviar:")
 
-    with st.container():
-        colA, colB = st.columns(2)
-        with colA:
-            st.markdown("**Data do evento:** " + str(reg.get("data", "")))
-            st.markdown("**Horário:** " + f"{reg.get('hora_inicio','')} – {reg.get('hora_fim','')}")
-            st.markdown("**Cliente:** " + (reg.get("nome") or ""))
-            st.markdown("**Contato:** " + (reg.get("telefone") or ""))
-            st.markdown("**CPF:** " + (reg.get("cpf") or ""))
-        with colB:
-            st.markdown("**Endereço:** " + " ".join([
-                str(reg.get("logradouro") or ""),
-                str(reg.get("numero") or ""),
-                str(reg.get("bairro") or ""),
-                str(reg.get("cidade") or ""),
-                str(reg.get("cep") or ""),
-            ]).strip())
+    colA, colB = st.columns(2)
+    with colA:
+        st.markdown("**Data do evento:** " + str(reg.get("data", "")))
+        st.markdown("**Horário:** " + f"{reg.get('hora_inicio','')} – {reg.get('hora_fim','')}")
+        st.markdown("**Cliente:** " + (reg.get("nome") or ""))
+        st.markdown("**Contato:** " + (reg.get("telefone") or ""))
+        st.markdown("**CPF:** " + (reg.get("cpf") or ""))
+    with colB:
+        st.markdown("**Endereço:** " + " ".join([
+            str(reg.get("logradouro") or ""),
+            str(reg.get("numero") or ""),
+            str(reg.get("bairro") or ""),
+            str(reg.get("cidade") or ""),
+            str(reg.get("cep") or ""),
+        ]).strip())
 
-        st.markdown("**🎠 Brinquedos selecionados:**")
-        if reg.get("brinquedos"):
-            itens = [x.strip() for x in str(reg.get("brinquedos")).split(",") if x.strip()]
-            st.write(", ".join(itens))
-        else:
-            st.write("—")
+    st.markdown("**🎠 Brinquedos selecionados:**")
+    if reg.get("brinquedos"):
+        itens = [x.strip() for x in str(reg.get("brinquedos")).split(",") if x.strip()]
+        st.write(", ".join(itens))
+    else:
+        st.write("—")
 
-        if reg.get("observacao"):
-            st.markdown("**Observação:**")
-            st.write(reg.get("observacao"))
-
-    st.info("Se algo estiver incorreto, clique em **Voltar e editar** para ajustar antes do envio.")
+    if reg.get("observacao"):
+        st.markdown("**Observação:**")
+        st.write(reg.get("observacao"))
 
     colC1, colC2 = st.columns(2)
-    confirmar = colC1.button("✅ Confirmar envio", type="primary")
-    voltar = colC2.button("🔙 Voltar e editar")
-
-    if voltar:
-        st.session_state["pre_confirma_pendente"] = False
-        st.session_state["pre_confirma_registro"] = None
-        st.success("Você pode ajustar suas informações e enviar novamente.")
-        st.stop()
+    confirmar = colC1.button("✅ Confirmar envio", type="primary", use_container_width=True)
+    voltar = colC2.button("🔙 Voltar e editar", use_container_width=True)
 
     if confirmar:
         try:
             table_insert("pre_reservas", [reg])
-            st.session_state["pre_confirma_pendente"] = False
-            st.session_state["pre_confirma_registro"] = None
+            st.session_state.pre_confirm_payload = None
             st.success("✅ Solicitação enviada com sucesso!")
             st.balloons()
         except Exception as e:
             st.error(f"Erro ao enviar: {e}")
+        st.rerun()
+
+    if voltar:
+        st.session_state.pre_confirm_payload = None
+        st.rerun()
