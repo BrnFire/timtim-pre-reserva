@@ -52,17 +52,19 @@ def via_cep(cep: str):
 
 
 def carregar_brinquedos():
+    # ✅ use 'select' (seu wrapper espera 'select', não 'columns')
     rows = table_select(
         "brinquedos",
-        columns="nome,status",
+        select="nome,status",
         where={"status": "Disponível"},
-        order=("nome", True),
+        order=("nome", "asc"),  # mantém seu padrão original
     )
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["nome", "status"])
 
 
 def carregar_reservas_do_dia(d):
-    rows = table_select("reservas", columns="data,brinquedos", where={"data": str(d)})
+    # ✅ use 'select' aqui também
+    rows = table_select("reservas", select="data,brinquedos", where={"data": str(d)})
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["data", "brinquedos"])
 
 
@@ -124,7 +126,6 @@ with st.form("form_publico"):
         rg = st.text_input("RG")
         cpf = st.text_input("CPF")
 
-        # 🔥 LISTA COMO PEDIDO
         como = st.selectbox(
             "Como conheceu a empresa?",
             ["Indicação", "Instagram", "Facebook", "Google", "WhatsApp", "Outro"]
@@ -148,7 +149,6 @@ with st.form("form_publico"):
         cidade = st.text_input("Cidade", value=st.session_state.get("cidade", ""))
 
         st.subheader("🎉 Informações do Evento")
-
         ocasiao = st.text_input("Ocasião (Festa infantil, festa adulto, chá de bebê, corporativo, etc):")
         tema = st.text_input("Tema:")
         nome_aniv = st.text_input("Nome do aniversariante (Se houver):")
@@ -157,7 +157,6 @@ with st.form("form_publico"):
     observacao = st.text_area("Observação")
 
     st.subheader("⏰ Horário")
-
     col3, col4 = st.columns(2)
     with col3:
         hora_inicio = st.time_input("Horário início", value=dtime(13, 0))
@@ -165,7 +164,6 @@ with st.form("form_publico"):
         hora_fim = st.time_input("Horário fim", value=dtime(17, 0))
 
     st.subheader("🎠 Escolha seus brinquedos")
-
     if livres_df.empty:
         st.info("Todos os brinquedos estão reservados nessa data.")
         itens_selecionados = []
@@ -176,7 +174,7 @@ with st.form("form_publico"):
             options=lista
         )
 
-    # botão do formulário – agora só valida e vai para a confirmação
+    # Agora o botão "Enviar" apenas valida e vai para a confirmação
     enviar_clicado = st.form_submit_button("💾 Enviar solicitação")
 
 
@@ -218,19 +216,18 @@ if enviar_clicado and not st.session_state.get("pre_confirma_pendente", False):
         "data": str(data_evento),
         "hora_inicio": str(hora_inicio),
         "hora_fim": str(hora_fim),
-        "brinquedos": brinquedos_texto,  # 🔥 SALVA TUDO EM UMA COLUNA
-        # ⭐ Novos campos
+        "brinquedos": brinquedos_texto,
+        # Extras (sem mexer em status; Supabase já define Pendente)
         "ocasiao": ocasiao,
         "tema": tema,
         "nome_aniv": nome_aniv,
         "idade": idade,
-        "status": "Pendente",   # garante status padrão
     }
 
-    # === CONFIRMAÇÃO: guarda no state e ativa a tela de confirmação ===
+    # Liga a CONFIRMAÇÃO
     st.session_state["pre_confirma_registro"] = registro
     st.session_state["pre_confirma_pendente"] = True
-    st.experimental_rerun()   # recarrega para exibir a seção de confirmação
+    st.rerun()
 
 
 # =========================
@@ -242,7 +239,6 @@ if st.session_state.get("pre_confirma_pendente", False):
     st.markdown("---")
     st.subheader("✅ Confirme as informações antes de enviar")
 
-    # Resumo visual dos brinquedos e horários
     with st.container():
         colA, colB = st.columns(2)
         with colA:
@@ -259,6 +255,7 @@ if st.session_state.get("pre_confirma_pendente", False):
                 str(reg.get("cidade") or ""),
                 str(reg.get("cep") or ""),
             ]).strip())
+
         st.markdown("**🎠 Brinquedos selecionados:**")
         if reg.get("brinquedos"):
             itens = [x.strip() for x in str(reg.get("brinquedos")).split(",") if x.strip()]
@@ -276,14 +273,12 @@ if st.session_state.get("pre_confirma_pendente", False):
     confirmar = colC1.button("✅ Confirmar envio", type="primary")
     voltar = colC2.button("🔙 Voltar e editar")
 
-    # Se voltar, apenas limpa o state e volta ao formulário
     if voltar:
         st.session_state["pre_confirma_pendente"] = False
         st.session_state["pre_confirma_registro"] = None
         st.success("Você pode ajustar suas informações e enviar novamente.")
         st.stop()
 
-    # Se confirmar, envia ao banco
     if confirmar:
         try:
             table_insert("pre_reservas", [reg])
