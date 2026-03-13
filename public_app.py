@@ -26,10 +26,15 @@ if "pre_confirm_payload" not in st.session_state:
     st.session_state.pre_confirm_payload = None
 if "show_confirm_dialog" not in st.session_state:
     st.session_state.show_confirm_dialog = False
+# 🔔 flags de sucesso pós-salvamento
+if "pre_success" not in st.session_state:
+    st.session_state.pre_success = False
+if "pre_success_msg" not in st.session_state:
+    st.session_state.pre_success_msg = ""
 
 
 # =========================
-# DIALOG (definido ANTES de qualquer chamada)
+# DIALOG (definido ANTES)
 # =========================
 @st.dialog("Confirmar solicitação", width="large")
 def open_confirm_dialog():
@@ -70,14 +75,18 @@ def open_confirm_dialog():
 
     if confirmar:
         try:
-            table_insert("pre_reservas", [reg])  # Supabase já define status=Pendente
-            # fechar modal e limpar staging
+            table_insert("pre_reservas", [reg])  # Supabase já define status padrão
+            # prepara feedback na tela principal
             st.session_state.pre_confirm_payload = None
             st.session_state.show_confirm_dialog = False
-            st.success("✅ Solicitação enviada com sucesso!")
-            st.balloons()
+            st.session_state.pre_success = True
+            st.session_state.pre_success_msg = "✅ Pré‑reserva enviada com sucesso!"
         except Exception as e:
-            st.error(f"Erro ao enviar: {e}")
+            # também mostra erro na tela principal
+            st.session_state.pre_confirm_payload = None
+            st.session_state.show_confirm_dialog = False
+            st.session_state.pre_success = True
+            st.session_state.pre_success_msg = f"❌ Erro ao enviar: {e}"
         st.rerun()
 
     if voltar:
@@ -119,15 +128,15 @@ def via_cep(cep: str):
 def carregar_brinquedos():
     rows = table_select(
         "brinquedos",
-        select="nome,status",           # ✅ use 'select'
+        select="nome,status",
         where={"status": "Disponível"},
-        order=("nome", "asc"),          # mantém seu padrão
+        order=("nome", "asc"),
     )
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["nome", "status"])
 
 
 def carregar_reservas_do_dia(d):
-    rows = table_select("reservas", select="data,brinquedos", where={"data": str(d)})  # ✅ select
+    rows = table_select("reservas", select="data,brinquedos", where={"data": str(d)})
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["data", "brinquedos"])
 
 
@@ -139,6 +148,24 @@ def ocupados_no_dia(df):
             if nome:
                 ocupados.add(normalizar_nome(nome))
     return ocupados
+
+
+# =========================
+# FEEDBACK APÓS CONFIRMAR (fora do modal)
+# =========================
+# Se acabou de confirmar, mostra banner de sucesso/erro + balões
+if st.session_state.pre_success:
+    msg = st.session_state.pre_success_msg or "Operação concluída."
+    if msg.startswith("✅"):
+        st.success(msg)
+        st.balloons()
+    elif msg.startswith("❌"):
+        st.error(msg)
+    else:
+        st.info(msg)
+    # limpa flags para não repetir nas próximas renderizações
+    st.session_state.pre_success = False
+    st.session_state.pre_success_msg = ""
 
 
 # =========================
@@ -278,7 +305,7 @@ if enviar_clicado:
 
 
 # =========================
-# SE O FLAG ESTIVER LIGADO, ABRE O MODAL
+# ABRE O MODAL SE O FLAG ESTIVER LIGADO
 # =========================
 if st.session_state.show_confirm_dialog and st.session_state.pre_confirm_payload:
     open_confirm_dialog()
