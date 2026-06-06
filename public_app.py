@@ -175,7 +175,6 @@ st.subheader("🎉 Escolha a data do evento")
 
 data_evento = st.date_input(
     "Data do evento*",
-    st.markdown("<h2 style='text-align:center'>🎈 Cadastro</h2>", unsafe_allow_html=True),
     value=date.today(),
     key="data_evento_publico"
 )
