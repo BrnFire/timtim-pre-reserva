@@ -44,6 +44,9 @@ if "brinquedos_sel" not in st.session_state:
 if "pre_confirm_resumo" not in st.session_state:
     st.session_state.pre_confirm_resumo = []
 
+if "pre_confirm_kit" not in st.session_state:
+    st.session_state.pre_confirm_kit = None
+
 if "pre_success" not in st.session_state:
     st.session_state.pre_success = False
 
@@ -551,6 +554,197 @@ TITULOS_FILTRO = {
 ORDEM_GRUPOS = ["G", "M", "P", "E", "OUT", "TRAD"]
 
 
+# Composição padrão de cada kit (apenas orientação, não bloqueia).
+# Para alterar quantidades ou criar kit novo, edite aqui.
+KITS = {
+    "LIVRE": {
+        "nome": "Escolha livre (sem kit)",
+        "G": 0, "M": 0, "P": 0,
+    },
+    "ESSENCIA": {
+        "nome": "Kit Essência",
+        "G": 3, "M": 4, "P": 5,
+    },
+    "ENCANTOS": {
+        "nome": "Kit Encantos",
+        "G": 4, "M": 5, "P": 7,
+    },
+    "TIMTIM": {
+        "nome": "Kit TimTim",
+        "G": 5, "M": 6, "P": 9,
+    },
+}
+
+NOMES_SUB_SING = {"G": "Grande", "M": "Médio", "P": "Pequeno"}
+NOMES_SUB_PLURAL = {"G": "Grandes", "M": "Médios", "P": "Pequenos"}
+
+
+def total_kit(chave_kit) -> int:
+    kit = KITS[chave_kit]
+    return kit["G"] + kit["M"] + kit["P"]
+
+
+def rotulo_kit(chave_kit) -> str:
+    if chave_kit == "LIVRE":
+        return KITS["LIVRE"]["nome"]
+
+    kit = KITS[chave_kit]
+    return (
+        f"{kit['nome']} · {total_kit(chave_kit)} itens "
+        f"(G{kit['G']} · M{kit['M']} · P{kit['P']})"
+    )
+
+
+def montar_resumo_kit(chave_kit, selec_por_grupo):
+    """
+    Compara o que o cliente escolheu com a composição do kit.
+    Retorna dict com linhas (G, M, P), total e texto para a confirmação.
+    """
+    kit = KITS[chave_kit]
+    linhas = []
+
+    for sub in ["G", "M", "P"]:
+        meta = kit[sub]
+        atual = selec_por_grupo.get(sub, 0)
+        linhas.append(
+            {
+                "sub": sub,
+                "meta": meta,
+                "atual": atual,
+                "dif": atual - meta,
+            }
+        )
+
+    meta_total = total_kit(chave_kit)
+    atual_total = sum(l["atual"] for l in linhas)
+
+    extras = (
+        selec_por_grupo.get("E", 0)
+        + selec_por_grupo.get("OUT", 0)
+        + selec_por_grupo.get("TRAD", 0)
+    )
+
+    partes = [
+        f"{l['sub']} {l['atual']}/{l['meta']}" for l in linhas
+    ]
+
+    texto = (
+        f"{kit['nome']}: "
+        + " · ".join(partes)
+        + f" | Total {atual_total}/{meta_total}"
+    )
+
+    if extras:
+        texto += f" | Extras/Tradicional: {extras}"
+
+    return {
+        "chave": chave_kit,
+        "nome": kit["nome"],
+        "linhas": linhas,
+        "meta_total": meta_total,
+        "atual_total": atual_total,
+        "extras": extras,
+        "texto": texto,
+    }
+
+
+def mostrar_painel_kit(resumo):
+    """Painel colorido com G / M / P / Total."""
+
+    def cartao(titulo, atual, meta):
+        dif = atual - meta
+
+        if dif == 0:
+            cor, fundo, msg = "#1b7f3b", "#e8f6ec", "✅ completo"
+        elif dif < 0:
+            cor, fundo = "#b26a00", "#fff4e0"
+            msg = f"faltam {abs(dif)}"
+        else:
+            cor, fundo = "#0b5cad", "#e7f1fc"
+            msg = f"+{dif} a mais"
+
+        return (
+            f'<div style="flex:1;min-width:70px;background:{fundo};'
+            f'border-radius:10px;padding:8px 4px;text-align:center;">'
+            f'<div style="font-size:0.75rem;color:#555;">{titulo}</div>'
+            f'<div style="font-size:1.35rem;font-weight:700;'
+            f'color:{cor};">{atual}/{meta}</div>'
+            f'<div style="font-size:0.72rem;color:{cor};">{msg}</div>'
+            f'</div>'
+        )
+
+    cartoes = "".join(
+        cartao(
+            NOMES_SUB_PLURAL[l["sub"]],
+            l["atual"],
+            l["meta"],
+        )
+        for l in resumo["linhas"]
+    )
+
+    cartoes += cartao(
+        "Total",
+        resumo["atual_total"],
+        resumo["meta_total"],
+    )
+
+    st.markdown(
+        f'<div style="display:flex;gap:8px;margin:6px 0 8px 0;">'
+        f'{cartoes}</div>',
+        unsafe_allow_html=True,
+    )
+
+    faltam = []
+    sobram = []
+
+    for l in resumo["linhas"]:
+        if l["dif"] < 0:
+            nome = (
+                NOMES_SUB_SING[l["sub"]]
+                if abs(l["dif"]) == 1
+                else NOMES_SUB_PLURAL[l["sub"]]
+            )
+            faltam.append(f"{abs(l['dif'])} {nome}")
+        elif l["dif"] > 0:
+            nome = (
+                NOMES_SUB_SING[l["sub"]]
+                if l["dif"] == 1
+                else NOMES_SUB_PLURAL[l["sub"]]
+            )
+            sobram.append(f"{l['dif']} {nome}")
+
+    if not faltam and not sobram:
+        st.success(
+            f"✅ Você completou a composição do "
+            f"{resumo['nome']}!"
+        )
+    else:
+        linhas_msg = []
+
+        if faltam:
+            linhas_msg.append(
+                "🔸 Ainda dá para escolher: " + ", ".join(faltam)
+            )
+
+        if sobram:
+            linhas_msg.append(
+                "🔹 Acima do kit: " + ", ".join(sobram)
+            )
+
+        st.info("  \n".join(linhas_msg))
+
+    if resumo["extras"]:
+        st.caption(
+            f"➕ {resumo['extras']} item(ns) Extra(s)/Tradicional "
+            "não entram na contagem do kit."
+        )
+
+    st.caption(
+        "ℹ️ Esta contagem é só uma orientação. Você pode escolher "
+        "mais ou menos itens e combinamos os detalhes com você."
+    )
+
+
 def nome_exibicao(nome: str) -> str:
     """
     Esconde o prefixo 'G - ', 'P - ' etc. apenas na tela.
@@ -737,6 +931,7 @@ def renderizar_catalogo(livres_df):
             "nessa data."
         )
         st.session_state.brinquedos_sel = set()
+        st.session_state.pre_confirm_kit = None
         return [], []
 
     css_catalogo()
@@ -778,6 +973,24 @@ def renderizar_catalogo(livres_df):
         if (df_cat["grupo"] == chave).any()
     ]
 
+    # ---- Kit (apenas orientação) ----
+    st.markdown("**🎁 Qual kit você pretende fechar?**")
+
+    chave_kit = st.radio(
+        "Kit",
+        options=list(KITS.keys()),
+        format_func=rotulo_kit,
+        key="kit_escolhido",
+        label_visibility="collapsed",
+    )
+
+    if chave_kit != "LIVRE":
+        resumo_kit = montar_resumo_kit(chave_kit, selec_por_grupo)
+        mostrar_painel_kit(resumo_kit)
+        st.session_state.pre_confirm_kit = resumo_kit
+    else:
+        st.session_state.pre_confirm_kit = None
+
     opcoes_filtro = ["TODOS"] + grupos_existentes
 
     if st.session_state.get("filtro_brinquedos") not in opcoes_filtro:
@@ -793,6 +1006,10 @@ def renderizar_catalogo(livres_df):
         qtd = int((df_cat["grupo"] == chave).sum())
         texto = f"{TITULOS_FILTRO[chave]} ({qtd})"
         marcados = selec_por_grupo.get(chave, 0)
+
+        if chave_kit != "LIVRE" and chave in ("G", "M", "P"):
+            return f"{texto} ✓{marcados}/{KITS[chave_kit][chave]}"
+
         return f"{texto} ✓{marcados}" if marcados else texto
 
     filtro = st.radio(
@@ -1480,6 +1697,18 @@ def open_confirm_dialog():
         )
 
     resumo = st.session_state.get("pre_confirm_resumo") or []
+    kit_info = st.session_state.get("pre_confirm_kit_dialog")
+
+    if kit_info:
+        st.markdown(
+            f"**🎁 {kit_info['nome']}** · "
+            + " · ".join(
+                f"{l['sub']} {l['atual']}/{l['meta']}"
+                for l in kit_info["linhas"]
+            )
+            + f" · Total {kit_info['atual_total']}"
+            f"/{kit_info['meta_total']}"
+        )
 
     if resumo:
         st.markdown(
@@ -2185,6 +2414,21 @@ if enviar_clicado:
     }
 
     st.session_state.pre_confirm_resumo = resumo_selecionados
+
+    kit_atual = st.session_state.get("pre_confirm_kit")
+    st.session_state.pre_confirm_kit_dialog = kit_atual
+
+    if kit_atual:
+        obs_base = (
+            st.session_state.pre_confirm_payload.get("observacao")
+            or ""
+        ).strip()
+
+        linha_kit = f"[Kit pretendido] {kit_atual['texto']}"
+
+        st.session_state.pre_confirm_payload["observacao"] = (
+            f"{obs_base}\n{linha_kit}".strip()
+        )
 
     st.session_state.show_confirm_dialog = True
 
