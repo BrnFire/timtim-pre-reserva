@@ -2158,7 +2158,180 @@ else:
 
 
 # =========================================================
-# CATÁLOGO DE BRINQUEDOS (fora do formulário, com filtro)
+# DADOS DO CLIENTE (logo após a data)
+# =========================================================
+st.subheader("👤 Seus dados")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    nome = st.text_input(
+        "Nome do cliente*",
+        key="form_nome"
+    )
+
+    telefone_raw = st.text_input(
+        "Telefone (somente números)*",
+        key="form_telefone"
+    )
+
+    email = st.text_input(
+        "Email",
+        key="form_email"
+    )
+
+    rg = st.text_input(
+        "RG",
+        key="form_rg"
+    )
+
+    cpf = st.text_input(
+        "CPF",
+        key="form_cpf"
+    )
+
+    opcoes_como = [
+        "Indicação",
+        "Instagram",
+        "Facebook",
+        "Google",
+        "WhatsApp",
+        "Outro",
+    ]
+
+    valor_como_atual = st.session_state.get(
+        "form_como",
+        "Indicação"
+    )
+
+    if valor_como_atual not in opcoes_como:
+        valor_como_atual = "Outro"
+
+    como = st.selectbox(
+        "Como conheceu a empresa?",
+        options=opcoes_como,
+        index=opcoes_como.index(
+            valor_como_atual
+        ),
+        key="form_como"
+    )
+
+with col2:
+    cep = st.text_input(
+        "CEP",
+        key="form_cep"
+    )
+
+    buscar = st.button(
+        "🔎 Buscar CEP"
+    )
+
+    if buscar:
+        dados_cep = via_cep(
+            cep
+        )
+
+        if dados_cep:
+            st.session_state["logradouro"] = (
+                dados_cep["logradouro"]
+            )
+
+            st.session_state["bairro"] = (
+                dados_cep["bairro"]
+            )
+
+            st.session_state["cidade"] = (
+                dados_cep["cidade"]
+            )
+
+        else:
+            st.warning(
+                "⚠️ CEP não encontrado. "
+                "Preencha o endereço manualmente."
+            )
+
+    logradouro = st.text_input(
+        "Logradouro",
+        key="logradouro"
+    )
+
+    numero = st.text_input(
+        "Número",
+        key="form_numero"
+    )
+
+    complemento = st.text_input(
+        "Complemento",
+        key="form_complemento"
+    )
+
+    bairro = st.text_input(
+        "Bairro",
+        key="bairro"
+    )
+
+    cidade = st.text_input(
+        "Cidade",
+        key="cidade"
+    )
+
+st.subheader("🎉 Informações do Evento")
+
+ocasiao = st.text_input(
+    (
+        "Ocasião (Festa infantil, festa adulto, "
+        "chá de bebê, corporativo, etc):"
+    ),
+    key="form_ocasiao"
+)
+
+tema = st.text_input(
+    "Tema:",
+    key="form_tema"
+)
+
+nome_aniv = st.text_input(
+    "Nome do aniversariante (Se houver):",
+    key="form_nome_aniv"
+)
+
+idade = st.text_input(
+    "Idade da criança ou adulto:",
+    key="form_idade"
+)
+
+observacao = st.text_area(
+    "Observação",
+    key="form_observacao"
+)
+
+st.subheader("⏰ Horário")
+
+col3, col4 = st.columns(2)
+
+with col3:
+    hora_inicio = st.time_input(
+        "Horário início",
+        value=st.session_state.get(
+            "form_hora_inicio",
+            dtime(13, 0)
+        ),
+        key="form_hora_inicio"
+    )
+
+with col4:
+    hora_fim = st.time_input(
+        "Horário fim",
+        value=st.session_state.get(
+            "form_hora_fim",
+            dtime(17, 0)
+        ),
+        key="form_hora_fim"
+    )
+
+
+# =========================================================
+# BRINQUEDOS (depois dos dados do cliente)
 # =========================================================
 itens_selecionados, resumo_selecionados = renderizar_catalogo(
     livres_df
@@ -2166,187 +2339,11 @@ itens_selecionados, resumo_selecionados = renderizar_catalogo(
 
 st.divider()
 
-
-# =========================================================
-# FORMULÁRIO PRINCIPAL
-# =========================================================
-with st.form("form_publico"):
-    st.subheader("👤 Seus dados")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        nome = st.text_input(
-            "Nome do cliente*",
-            key="form_nome"
-        )
-
-        telefone_raw = st.text_input(
-            "Telefone (somente números)*",
-            key="form_telefone"
-        )
-
-        email = st.text_input(
-            "Email",
-            key="form_email"
-        )
-
-        rg = st.text_input(
-            "RG",
-            key="form_rg"
-        )
-
-        cpf = st.text_input(
-            "CPF",
-            key="form_cpf"
-        )
-
-        opcoes_como = [
-            "Indicação",
-            "Instagram",
-            "Facebook",
-            "Google",
-            "WhatsApp",
-            "Outro",
-        ]
-
-        valor_como_atual = st.session_state.get(
-            "form_como",
-            "Indicação"
-        )
-
-        if valor_como_atual not in opcoes_como:
-            valor_como_atual = "Outro"
-
-        como = st.selectbox(
-            "Como conheceu a empresa?",
-            options=opcoes_como,
-            index=opcoes_como.index(
-                valor_como_atual
-            ),
-            key="form_como"
-        )
-
-    with col2:
-        cep = st.text_input(
-            "CEP",
-            key="form_cep"
-        )
-
-        buscar = st.form_submit_button(
-            "🔎 Buscar CEP"
-        )
-
-        if buscar:
-            dados_cep = via_cep(
-                cep
-            )
-
-            if dados_cep:
-                st.session_state["logradouro"] = (
-                    dados_cep["logradouro"]
-                )
-
-                st.session_state["bairro"] = (
-                    dados_cep["bairro"]
-                )
-
-                st.session_state["cidade"] = (
-                    dados_cep["cidade"]
-                )
-
-            else:
-                st.warning(
-                    "⚠️ CEP não encontrado. "
-                    "Preencha o endereço manualmente."
-                )
-
-        logradouro = st.text_input(
-            "Logradouro",
-            key="logradouro"
-        )
-
-        numero = st.text_input(
-            "Número",
-            key="form_numero"
-        )
-
-        complemento = st.text_input(
-            "Complemento",
-            key="form_complemento"
-        )
-
-        bairro = st.text_input(
-            "Bairro",
-            key="bairro"
-        )
-
-        cidade = st.text_input(
-            "Cidade",
-            key="cidade"
-        )
-
-    st.subheader("🎉 Informações do Evento")
-
-    ocasiao = st.text_input(
-        (
-            "Ocasião (Festa infantil, festa adulto, "
-            "chá de bebê, corporativo, etc):"
-        ),
-        key="form_ocasiao"
-    )
-
-    tema = st.text_input(
-        "Tema:",
-        key="form_tema"
-    )
-
-    nome_aniv = st.text_input(
-        "Nome do aniversariante (Se houver):",
-        key="form_nome_aniv"
-    )
-
-    idade = st.text_input(
-        "Idade da criança ou adulto:",
-        key="form_idade"
-    )
-
-    observacao = st.text_area(
-        "Observação",
-        key="form_observacao"
-    )
-
-    st.subheader("⏰ Horário")
-
-    col3, col4 = st.columns(2)
-
-    with col3:
-        hora_inicio = st.time_input(
-            "Horário início",
-            value=st.session_state.get(
-                "form_hora_inicio",
-                dtime(13, 0)
-            ),
-            key="form_hora_inicio"
-        )
-
-    with col4:
-        hora_fim = st.time_input(
-            "Horário fim",
-            value=st.session_state.get(
-                "form_hora_fim",
-                dtime(17, 0)
-            ),
-            key="form_hora_fim"
-        )
-
-    st.caption(
-        f"🎠 Brinquedos escolhidos: {len(itens_selecionados)}"
-    )
-
-    enviar_clicado = st.form_submit_button(
-        "💾 Enviar solicitação"
-    )
+enviar_clicado = st.button(
+    "💾 Enviar solicitação",
+    type="primary",
+    use_container_width=True
+)
 
 
 # =========================================================
