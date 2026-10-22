@@ -47,18 +47,6 @@ if "pre_confirm_resumo" not in st.session_state:
 if "pre_confirm_kit" not in st.session_state:
     st.session_state.pre_confirm_kit = None
 
-if "pre_confirm_kit_dialog" not in st.session_state:
-    st.session_state.pre_confirm_kit_dialog = None
-
-if "ids_enviados" not in st.session_state:
-    st.session_state.ids_enviados = set()
-
-if "assinaturas_enviadas" not in st.session_state:
-    st.session_state.assinaturas_enviadas = set()
-
-if "aviso_data_passada" not in st.session_state:
-    st.session_state.aviso_data_passada = ""
-
 if "pre_success" not in st.session_state:
     st.session_state.pre_success = False
 
@@ -534,10 +522,6 @@ def ocupados_no_dia(df):
 # Para fotos maiores, diminua (ex.: 4). Para menores, aumente (ex.: 8).
 COLUNAS_POR_LINHA = 6
 
-# Distância do topo onde o painel do kit fica "preso".
-# Se o painel ficar escondido atrás da barra do Streamlit, aumente (ex.: 4rem).
-TOPO_PAINEL_FIXO = "3.5rem"
-
 ORDEM_SUB = ["G", "M", "P", "E"]
 
 TITULOS_SUB = {
@@ -547,6 +531,7 @@ TITULOS_SUB = {
     "E": "Extras (E)",
 }
 
+# Chaves usadas no filtro e nos resumos
 TITULOS_GRUPO = {
     "G": "🌿 Montessori · Grandes (G)",
     "M": "🌿 Montessori · Médios (M)",
@@ -567,6 +552,7 @@ TITULOS_FILTRO = {
 }
 
 ORDEM_GRUPOS = ["G", "M", "P", "E", "OUT", "TRAD"]
+
 
 # Composição padrão de cada kit (apenas orientação, não bloqueia).
 # Para alterar quantidades ou criar kit novo, edite aqui.
@@ -612,6 +598,7 @@ def rotulo_kit(chave_kit) -> str:
 def montar_resumo_kit(chave_kit, selec_por_grupo):
     """
     Compara o que o cliente escolheu com a composição do kit.
+    Retorna dict com linhas (G, M, P), total e texto para a confirmação.
     """
     kit = KITS[chave_kit]
     linhas = []
@@ -659,6 +646,11 @@ def montar_resumo_kit(chave_kit, selec_por_grupo):
         "extras": extras,
         "texto": texto,
     }
+
+
+# Distância do topo onde o painel do kit fica "preso".
+# Se o painel ficar escondido atrás da barra do Streamlit, aumente (ex.: 4rem).
+TOPO_PAINEL_FIXO = "3.5rem"
 
 
 def mostrar_painel_kit(resumo):
@@ -814,89 +806,64 @@ def chave_grupo(categoria, subcategoria) -> str:
     return "TRAD"
 
 
-CSS_CATALOGO = """
-<style>
-/* Grade de brinquedos: só afeta linhas que contêm fotos */
-div[data-testid="stHorizontalBlock"]:has(.brq-img) {
-    flex-wrap: wrap !important;
-    gap: 0.5rem !important;
-}
-div[data-testid="stHorizontalBlock"]:has(.brq-img)
-    > div[data-testid="stColumn"],
-div[data-testid="stHorizontalBlock"]:has(.brq-img)
-    > div[data-testid="column"] {
-    flex: 0 0 calc(100% / __N__ - 0.5rem) !important;
-    width: calc(100% / __N__ - 0.5rem) !important;
-    min-width: calc(100% / __N__ - 0.5rem) !important;
-    position: relative;
-    cursor: pointer;
-}
-div[data-testid="stHorizontalBlock"]:has(.brq-img) label p {
-    font-size: 0.72rem !important;
-    line-height: 1.15 !important;
-}
-div[data-testid="stHorizontalBlock"]:has(.brq-img)
-    div[data-testid="stCheckbox"] {
-    margin-top: -0.4rem;
-}
-/* O Streamlit põe position:relative nos blocos internos; precisa ser static
-   para a área clicável se ajustar ao cartão inteiro */
-div[data-testid="stHorizontalBlock"]:has(.brq-img)
-    div[data-testid="stElementContainer"],
-div[data-testid="stHorizontalBlock"]:has(.brq-img)
-    div[data-testid="element-container"] {
-    position: static !important;
-}
-/* Clique na foto: a área do rótulo da caixinha cobre o cartão todo */
-div[data-testid="stHorizontalBlock"]:has(.brq-img)
-    div[data-testid="stCheckbox"] label::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-    cursor: pointer;
-}
-div[data-testid="stHorizontalBlock"]:has(.brq-img)
-    > div:hover .brq-img {
-    filter: brightness(0.94);
-}
-.brq-img {
-    width: 100%;
-    aspect-ratio: 1 / 1;
-    object-fit: contain;
-    background: #f6f6f6;
-    border-radius: 10px;
-    border: 3px solid transparent;
-    display: block;
-}
-.brq-img.sel {
-    border-color: #ff4b4b;
-    background: #fff5f5;
-}
-.brq-semfoto {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #999;
-    font-size: 0.7rem;
-}
-@media (max-width: 640px) {
-    div[data-testid="stHorizontalBlock"]:has(.brq-img)
-        > div[data-testid="stColumn"],
-    div[data-testid="stHorizontalBlock"]:has(.brq-img)
-        > div[data-testid="column"] {
-        flex: 0 0 calc(100% / 3 - 0.5rem) !important;
-        width: calc(100% / 3 - 0.5rem) !important;
-        min-width: calc(100% / 3 - 0.5rem) !important;
-    }
-}
-</style>
-"""
-
-
 def css_catalogo():
     st.markdown(
-        CSS_CATALOGO.replace("__N__", str(COLUNAS_POR_LINHA)),
+        """
+        <style>
+        /* Grade de brinquedos: só afeta linhas que contêm fotos */
+        div[data-testid="stHorizontalBlock"]:has(.brq-img) {
+            flex-wrap: wrap !important;
+            gap: 0.5rem !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(.brq-img)
+            > div[data-testid="stColumn"],
+        div[data-testid="stHorizontalBlock"]:has(.brq-img)
+            > div[data-testid="column"] {
+            flex: 0 0 calc(100% / %(n)d - 0.5rem) !important;
+            width: calc(100%% / %(n)d - 0.5rem) !important;
+            min-width: calc(100%% / %(n)d - 0.5rem) !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(.brq-img) label p {
+            font-size: 0.72rem !important;
+            line-height: 1.15 !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(.brq-img)
+            div[data-testid="stCheckbox"] {
+            margin-top: -0.4rem;
+        }
+        .brq-img {
+            width: 100%%;
+            aspect-ratio: 1 / 1;
+            object-fit: contain;
+            background: #f6f6f6;
+            border-radius: 10px;
+            border: 3px solid transparent;
+            display: block;
+        }
+        .brq-img.sel {
+            border-color: #ff4b4b;
+            background: #fff5f5;
+        }
+        .brq-semfoto {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            font-size: 0.7rem;
+        }
+        @media (max-width: 640px) {
+            div[data-testid="stHorizontalBlock"]:has(.brq-img)
+                > div[data-testid="stColumn"],
+            div[data-testid="stHorizontalBlock"]:has(.brq-img)
+                > div[data-testid="column"] {
+                flex: 0 0 calc(100%% / 3 - 0.5rem) !important;
+                width: calc(100%% / 3 - 0.5rem) !important;
+                min-width: calc(100%% / 3 - 0.5rem) !important;
+            }
+        }
+        </style>
+        """.replace("calc(100% / %(n)d", "calc(100%% / %(n)d")
+        % {"n": COLUNAS_POR_LINHA},
         unsafe_allow_html=True,
     )
 
@@ -982,8 +949,8 @@ def agrupar_para_resumo(itens):
 
 def renderizar_catalogo(livres_df):
     """
-    Catálogo com kit, busca e filtro. Fica FORA de qualquer st.form
-    para atualizar a tela na hora. Retorna (nomes, resumo).
+    Catálogo com filtro. Fica FORA do st.form para que o filtro
+    atualize a tela na hora. Retorna a lista de nomes selecionados.
     """
     st.subheader("🎠 Escolha seus brinquedos")
 
@@ -1024,7 +991,7 @@ def renderizar_catalogo(livres_df):
     )
     selecionados = st.session_state.brinquedos_sel
 
-    # Contagem de selecionados por grupo
+    # Contagem de selecionados por grupo (aparece no filtro)
     selec_por_grupo = {chave: 0 for chave in ORDEM_GRUPOS}
     for _, linha in df_cat.iterrows():
         if linha["nome"] in selecionados:
@@ -1053,16 +1020,6 @@ def renderizar_catalogo(livres_df):
     else:
         st.session_state.pre_confirm_kit = None
 
-    # ---- Busca por nome ----
-    busca = st.text_input(
-        "🔎 Buscar brinquedo pelo nome",
-        key="busca_brinquedo",
-        placeholder="Ex.: pikler, mercadinho... (digite e aperte Enter)",
-    )
-
-    termo = normalizar_nome(busca)
-
-    # ---- Filtro por tamanho ----
     opcoes_filtro = ["TODOS"] + grupos_existentes
 
     if st.session_state.get("filtro_brinquedos") not in opcoes_filtro:
@@ -1071,7 +1028,7 @@ def renderizar_catalogo(livres_df):
     def rotulo_filtro(chave):
         if chave == "TODOS":
             total = len(selecionados)
-            qtd = len(df_cat)
+            qtd = (df_cat["nome"].notna()).sum()
             texto = f"Todos ({qtd})"
             return f"{texto} ✓{total}" if total else texto
 
@@ -1095,52 +1052,26 @@ def renderizar_catalogo(livres_df):
     if selecionados:
         st.caption(
             f"✅ {len(selecionados)} brinquedo(s) selecionado(s). "
-            "Toque na foto para escolher ou desmarcar; "
-            "os escolhidos ficam com borda vermelha."
+            "Os escolhidos ficam com borda vermelha."
         )
     else:
         st.caption(
-            "Toque na foto do brinquedo para escolher."
+            "Toque na caixinha abaixo da foto para escolher."
         )
 
-    # ---- O que mostrar: busca (todos os tamanhos) ou filtro ----
-    if termo:
-        df_view = df_cat[
-            df_cat["nome"].apply(
-                lambda n: termo in normalizar_nome(nome_exibicao(n))
-            )
-        ]
-        grupos_mostrar = [
-            chave for chave in ORDEM_GRUPOS
-            if (df_view["grupo"] == chave).any()
-        ]
-        titulo_sempre = True
-
-        if df_view.empty:
-            st.warning(
-                f"Nenhum brinquedo disponível com “{busca.strip()}”."
-            )
-        else:
-            st.caption(
-                f"🔎 {len(df_view)} resultado(s) para “{busca.strip()}” "
-                "(a busca mostra todos os tamanhos). "
-                "Apague o texto para voltar ao filtro."
-            )
-    else:
-        df_view = df_cat
-        grupos_mostrar = (
-            grupos_existentes if filtro == "TODOS" else [filtro]
-        )
-        titulo_sempre = filtro == "TODOS"
+    grupos_mostrar = (
+        grupos_existentes if filtro == "TODOS" else [filtro]
+    )
 
     for chave in grupos_mostrar:
-        grupo = df_view[df_view["grupo"] == chave]
+        grupo = df_cat[df_cat["grupo"] == chave]
 
-        if titulo_sempre or chave == "OUT":
+        if filtro == "TODOS" or chave == "OUT":
             st.markdown(f"**{TITULOS_GRUPO[chave]}**")
 
         renderizar_grade(grupo)
 
+    # Lista final, na ordem do catálogo
     itens = [
         nome for nome in df_cat["nome"]
         if nome in selecionados
@@ -1646,19 +1577,10 @@ def carregar_cliente_forms_no_session_state(linha):
     st.session_state["form_nome_aniv"] = nome_aniv
     st.session_state["form_idade"] = idade
 
-    st.session_state.aviso_data_passada = ""
-
     if data_evento_importada:
-        if data_evento_importada >= date.today():
-            st.session_state["data_evento_publico"] = (
-                data_evento_importada
-            )
-        else:
-            st.session_state.aviso_data_passada = (
-                "A data do cadastro importado "
-                f"({data_evento_importada.strftime('%d/%m/%Y')}) "
-                "já passou. Escolha a data correta do evento."
-            )
+        st.session_state["data_evento_publico"] = (
+            data_evento_importada
+        )
 
     if hora_inicio_importada:
         st.session_state["form_hora_inicio"] = (
@@ -1673,12 +1595,11 @@ def carregar_cliente_forms_no_session_state(linha):
     # Define hora final padrão quatro horas depois,
     # mas continua totalmente editável.
     if hora_inicio_importada:
-        total_minutos = min(
+        total_minutos = (
             hora_inicio_importada.hour * 60
             + hora_inicio_importada.minute
-            + 240,
-            23 * 60 + 59
-        )
+            + 240
+        ) % (24 * 60)
 
         st.session_state["form_hora_fim"] = dtime(
             total_minutos // 60,
@@ -1725,11 +1646,8 @@ def limpar_cliente_importado():
         if str(chave).startswith("brq_"):
             del st.session_state[chave]
 
-    for chave in ["busca_brinquedo", "filtro_brinquedos", "kit_escolhido"]:
-        if chave in st.session_state:
-            del st.session_state[chave]
-
     st.session_state.brinquedos_sel = set()
+
     st.session_state.cliente_importado = False
     st.session_state.forms_registro_selecionado = None
 
@@ -1876,27 +1794,12 @@ def open_confirm_dialog():
     )
 
     if confirmar:
-        id_envio = reg.get("id")
-        ids_enviados = st.session_state.ids_enviados
-
-        # Se o mesmo envio já foi iniciado (duplo clique), ignora.
-        if id_envio in ids_enviados:
-            st.session_state.pre_confirm_payload = None
-            st.session_state.show_confirm_dialog = False
-            st.rerun()
-
-        # Marca ANTES de gravar para bloquear um segundo clique.
-        ids_enviados.add(id_envio)
-
         try:
             table_insert(
                 "pre_reservas",
                 [reg]
             )
 
-            st.session_state.assinaturas_enviadas.add(
-                st.session_state.get("assinatura_pendente", "")
-            )
             st.session_state.pre_confirm_payload = None
             st.session_state.show_confirm_dialog = False
             st.session_state.pre_success = True
@@ -1905,8 +1808,6 @@ def open_confirm_dialog():
             )
 
         except Exception as erro:
-            # Falhou: libera para tentar de novo.
-            ids_enviados.discard(id_envio)
             st.session_state.pre_confirm_payload = None
             st.session_state.show_confirm_dialog = False
             st.session_state.pre_success = True
@@ -2245,27 +2146,14 @@ if st.session_state.cliente_importado:
 # =========================================================
 st.subheader("🎉 Escolha a data do evento")
 
-# Datas anteriores a hoje não podem ser escolhidas
-_data_atual = st.session_state.get("data_evento_publico")
-
-if _data_atual is not None and _data_atual < date.today():
-    st.session_state["data_evento_publico"] = date.today()
-
 data_evento = st.date_input(
     "Data do evento*",
     value=st.session_state.get(
         "data_evento_publico",
         date.today()
     ),
-    min_value=date.today(),
-    format="DD/MM/YYYY",
     key="data_evento_publico"
 )
-
-if st.session_state.get("aviso_data_passada"):
-    st.warning(
-        "⚠️ " + st.session_state.aviso_data_passada
-    )
 
 
 # =========================================================
@@ -2470,11 +2358,6 @@ with col4:
         key="form_hora_fim"
     )
 
-if hora_fim <= hora_inicio:
-    st.warning(
-        "⚠️ O horário de fim precisa ser depois do horário de início."
-    )
-
 
 # =========================================================
 # BRINQUEDOS (depois dos dados do cliente)
@@ -2513,16 +2396,6 @@ if enviar_clicado:
             "Selecione pelo menos 1 brinquedo."
         )
 
-    if data_evento < date.today():
-        erros.append(
-            "A data do evento não pode ser anterior a hoje."
-        )
-
-    if hora_fim <= hora_inicio:
-        erros.append(
-            "O horário de fim precisa ser depois do horário de início."
-        )
-
     if erros:
         st.error(
             "⚠️ Corrija os campos:\n\n- "
@@ -2540,25 +2413,6 @@ if enviar_clicado:
     brinquedos_texto = ", ".join(
         itens_selecionados
     )
-
-    assinatura = "|".join(
-        [
-            telefone,
-            str(data_evento),
-            str(hora_inicio),
-            brinquedos_texto,
-        ]
-    )
-
-    if assinatura in st.session_state.assinaturas_enviadas:
-        st.warning(
-            "ℹ️ Esta solicitação já foi enviada. "
-            "Se precisar alterar algo, altere os dados antes "
-            "de enviar novamente."
-        )
-        st.stop()
-
-    st.session_state.assinatura_pendente = assinatura
 
     st.session_state.pre_confirm_payload = {
         "id": str(uuid4()),
