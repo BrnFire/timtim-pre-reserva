@@ -1036,7 +1036,7 @@ def renderizar_catalogo(livres_df):
     ]
 
     # ---- Kit (apenas orientação) ----
-    st.markdown("**🎁 Qual kit você pretende fechar?**")
+    st.markdown("**🎁 Qual kit você pretende contratar?**")
 
     chave_kit = st.radio(
         "Kit",
