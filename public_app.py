@@ -1,3 +1,4 @@
+import html
 import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
@@ -453,9 +454,14 @@ def via_cep(cep: str):
 
 
 def carregar_brinquedos():
+    colunas = (
+        "id_brinquedo,nome,status,"
+        "categoria,subcategoria,imagem_url"
+    )
+
     rows = table_select(
         "brinquedos",
-        select="nome,status",
+        select=colunas,
         where={"status": "Disponível"},
         order=("nome", "asc"),
     )
@@ -464,7 +470,7 @@ def carregar_brinquedos():
         return pd.DataFrame(rows)
 
     return pd.DataFrame(
-        columns=["nome", "status"]
+        columns=colunas.split(",")
     )
 
 
@@ -498,6 +504,87 @@ def ocupados_no_dia(df):
                 )
 
     return ocupados
+
+
+# =========================================================
+# CATÁLOGO VISUAL DE BRINQUEDOS
+# =========================================================
+ORDEM_SUB = ["G", "M", "P", "E"]
+
+TITULOS_SUB = {
+    "G": "Grandes (G)",
+    "M": "Médios (M)",
+    "P": "Pequenos (P)",
+    "E": "Extras (E)",
+}
+
+
+def nome_exibicao(nome: str) -> str:
+    """
+    Esconde o prefixo 'G - ', 'P - ' etc. apenas na tela.
+    O nome salvo no banco e nas reservas não é alterado.
+    """
+    return re.sub(
+        r"^\s*[GMPEgmpe]\s*-\s*",
+        "",
+        str(nome)
+    ).strip()
+
+
+def texto_seguro(valor) -> str:
+    if valor_vazio(valor):
+        return ""
+    return str(valor).strip()
+
+
+def mostrar_card_brinquedo(linha, chave):
+    url = texto_seguro(linha.get("imagem_url"))
+
+    if url:
+        st.markdown(
+            f'<img src="{html.escape(url, quote=True)}" '
+            'style="width:100%;aspect-ratio:1/1;'
+            'object-fit:cover;border-radius:12px;">',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div style="width:100%;aspect-ratio:1/1;'
+            'background:#eee;border-radius:12px;'
+            'display:flex;align-items:center;'
+            'justify-content:center;color:#888;">'
+            'Sem foto</div>',
+            unsafe_allow_html=True,
+        )
+
+    return st.checkbox(
+        nome_exibicao(linha["nome"]),
+        key=chave
+    )
+
+
+def renderizar_grupo(df_grupo):
+    selecionados = []
+    linhas = df_grupo.to_dict("records")
+
+    for i in range(0, len(linhas), 2):
+        colunas = st.columns(2)
+
+        for coluna, linha in zip(colunas, linhas[i:i + 2]):
+            identificador = texto_seguro(
+                linha.get("id_brinquedo")
+            ) or normalizar_nome(linha["nome"])
+
+            with coluna:
+                marcado = mostrar_card_brinquedo(
+                    linha,
+                    f"brq_{identificador}"
+                )
+
+            if marcado:
+                selecionados.append(linha["nome"])
+
+    return selecionados
 
 
 # =========================================================
@@ -1050,6 +1137,10 @@ def limpar_cliente_importado():
 
     for chave in chaves:
         if chave in st.session_state:
+            del st.session_state[chave]
+
+    for chave in list(st.session_state.keys()):
+        if str(chave).startswith("brq_"):
             del st.session_state[chave]
 
     st.session_state.cliente_importado = False
@@ -1727,36 +1818,70 @@ with st.form("form_publico"):
 
     st.subheader("🎠 Escolha seus brinquedos")
 
+    itens_selecionados = []
+
     if livres_df.empty:
         st.info(
             "Todos os brinquedos estão reservados "
             "nessa data."
         )
 
-        itens_selecionados = []
-
     else:
-        lista_brinquedos = (
-            livres_df["nome"].tolist()
+        df_cat = livres_df.copy()
+
+        for campo in ["categoria", "subcategoria"]:
+            if campo not in df_cat.columns:
+                df_cat[campo] = ""
+
+        df_cat["categoria"] = (
+            df_cat["categoria"]
+            .fillna("").astype(str).str.strip()
+        )
+        df_cat["subcategoria"] = (
+            df_cat["subcategoria"]
+            .fillna("").astype(str).str.strip().str.upper()
         )
 
-        itens_anteriores = st.session_state.get(
-            "form_brinquedos",
-            []
+        eh_montessori = (
+            df_cat["categoria"]
+            .str.lower()
+            .str.startswith("montessori")
         )
 
-        itens_anteriores = [
-            item
-            for item in itens_anteriores
-            if item in lista_brinquedos
-        ]
+        montessori = df_cat[eh_montessori]
+        tradicional = df_cat[~eh_montessori]
 
-        itens_selecionados = st.multiselect(
-            "Brinquedos disponíveis*",
-            options=lista_brinquedos,
-            default=itens_anteriores,
-            key="form_brinquedos"
-        )
+        if not montessori.empty:
+            st.markdown("### 🌿 Montessori")
+
+            for sub in ORDEM_SUB:
+                grupo = montessori[
+                    montessori["subcategoria"] == sub
+                ].sort_values("nome")
+
+                if not grupo.empty:
+                    st.markdown(
+                        f"**{TITULOS_SUB[sub]}**"
+                    )
+                    itens_selecionados += renderizar_grupo(
+                        grupo
+                    )
+
+            sem_sub = montessori[
+                ~montessori["subcategoria"].isin(ORDEM_SUB)
+            ]
+
+            if not sem_sub.empty:
+                st.markdown("**Outros**")
+                itens_selecionados += renderizar_grupo(
+                    sem_sub.sort_values("nome")
+                )
+
+        if not tradicional.empty:
+            st.markdown("### 🎪 Tradicional")
+            itens_selecionados += renderizar_grupo(
+                tradicional.sort_values("nome")
+            )
 
     enviar_clicado = st.form_submit_button(
         "💾 Enviar solicitação"
