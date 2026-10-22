@@ -536,7 +536,7 @@ COLUNAS_POR_LINHA = 6
 
 # Distância do topo onde o painel do kit fica "preso".
 # Se o painel ficar escondido atrás da barra do Streamlit, aumente (ex.: 4rem).
-TOPO_PAINEL_FIXO = "3.5rem"
+TOPO_PAINEL_FIXO = "4rem"
 
 ORDEM_SUB = ["G", "M", "P", "E"]
 
@@ -661,6 +661,46 @@ def montar_resumo_kit(chave_kit, selec_por_grupo):
     }
 
 
+def sem_indentacao(txt: str) -> str:
+    """Remove a indentação de cada linha (o Markdown trata 4+ espaços como código)."""
+    return "\n".join(l.strip() for l in txt.splitlines() if l.strip())
+
+
+def css_fixo() -> str:
+    """CSS que deixa o painel preso no topo enquanto a página rola."""
+    return f"""
+    <style>
+    div[data-testid="stElementContainer"]:has(.kit-fixo),
+    div[data-testid="element-container"]:has(.kit-fixo) {{
+        position: sticky;
+        top: {TOPO_PAINEL_FIXO};
+        z-index: 999;
+    }}
+    .kit-fixo {{
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 6px 8px 4px 8px;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.18);
+        border: 1px solid #e6e6e6;
+    }}
+    </style>
+    """
+
+
+def mostrar_contador_livre(total):
+    """Contador simples (também fixo) quando o cliente não escolheu kit."""
+    st.markdown(
+        sem_indentacao(css_fixo() + f"""
+        <div class="kit-fixo" style="text-align:center;padding:8px;">
+            <span style="font-size:1rem;font-weight:700;color:#1b7f3b;">
+                🎠 {total} brinquedo(s) selecionado(s)
+            </span>
+        </div>
+        """),
+        unsafe_allow_html=True,
+    )
+
+
 def mostrar_painel_kit(resumo):
     """
     Painel compacto G / M / P / Total.
@@ -741,22 +781,7 @@ def mostrar_painel_kit(resumo):
         mensagem = " &nbsp;|&nbsp; ".join(partes)
 
     st.markdown(
-        f"""
-        <style>
-        div[data-testid="stElementContainer"]:has(.kit-fixo),
-        div[data-testid="element-container"]:has(.kit-fixo) {{
-            position: sticky;
-            top: {TOPO_PAINEL_FIXO};
-            z-index: 999;
-        }}
-        .kit-fixo {{
-            background: #ffffff;
-            border-radius: 12px;
-            padding: 6px 8px 4px 8px;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.18);
-            border: 1px solid #e6e6e6;
-        }}
-        </style>
+        sem_indentacao(css_fixo() + f"""
         <div class="kit-fixo">
             <div style="font-size:0.72rem;color:#666;margin-bottom:3px;">
                 🎁 {html.escape(resumo['nome'])} · orientação (não bloqueia)
@@ -766,7 +791,7 @@ def mostrar_painel_kit(resumo):
                 {mensagem}
             </div>
         </div>
-        """,
+        """),
         unsafe_allow_html=True,
     )
 
@@ -839,12 +864,19 @@ div[data-testid="stHorizontalBlock"]:has(.brq-img)
     div[data-testid="stCheckbox"] {
     margin-top: -0.4rem;
 }
-/* O Streamlit põe position:relative nos blocos internos; precisa ser static
-   para a área clicável se ajustar ao cartão inteiro */
+/* Os blocos internos do Streamlit (e, nas versões novas, o próprio rótulo
+   da caixinha) usam position:relative. Precisam ser static para que a área
+   clicável se ajuste ao cartão inteiro (a coluna é quem ancora). */
 div[data-testid="stHorizontalBlock"]:has(.brq-img)
     div[data-testid="stElementContainer"],
 div[data-testid="stHorizontalBlock"]:has(.brq-img)
-    div[data-testid="element-container"] {
+    div[data-testid="element-container"],
+div[data-testid="stHorizontalBlock"]:has(.brq-img)
+    div[data-testid="stVerticalBlock"],
+div[data-testid="stHorizontalBlock"]:has(.brq-img)
+    div[data-testid="stCheckbox"],
+div[data-testid="stHorizontalBlock"]:has(.brq-img)
+    div[data-testid="stCheckbox"] label {
     position: static !important;
 }
 /* Clique na foto: a área do rótulo da caixinha cobre o cartão todo */
@@ -1036,7 +1068,7 @@ def renderizar_catalogo(livres_df):
     ]
 
     # ---- Kit (apenas orientação) ----
-    st.markdown("**🎁 Qual kit você pretende contratar?**")
+    st.markdown("**🎁 Qual kit você pretende fechar?**")
 
     chave_kit = st.radio(
         "Kit",
@@ -1052,6 +1084,9 @@ def renderizar_catalogo(livres_df):
         st.session_state.pre_confirm_kit = resumo_kit
     else:
         st.session_state.pre_confirm_kit = None
+
+        if selecionados:
+            mostrar_contador_livre(len(selecionados))
 
     # ---- Busca por nome ----
     busca = st.text_input(
