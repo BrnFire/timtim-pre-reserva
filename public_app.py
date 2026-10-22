@@ -648,8 +648,17 @@ def montar_resumo_kit(chave_kit, selec_por_grupo):
     }
 
 
+# Distância do topo onde o painel do kit fica "preso".
+# Se o painel ficar escondido atrás da barra do Streamlit, aumente (ex.: 4rem).
+TOPO_PAINEL_FIXO = "3.5rem"
+
+
 def mostrar_painel_kit(resumo):
-    """Painel colorido com G / M / P / Total."""
+    """
+    Painel compacto G / M / P / Total.
+    Fica fixo no topo da tela enquanto o cliente rola a página.
+    Tudo vai em UM único st.markdown para o CSS conseguir fixar o bloco.
+    """
 
     def cartao(titulo, atual, meta):
         dif = atual - meta
@@ -664,12 +673,13 @@ def mostrar_painel_kit(resumo):
             msg = f"+{dif} a mais"
 
         return (
-            f'<div style="flex:1;min-width:70px;background:{fundo};'
-            f'border-radius:10px;padding:8px 4px;text-align:center;">'
-            f'<div style="font-size:0.75rem;color:#555;">{titulo}</div>'
-            f'<div style="font-size:1.35rem;font-weight:700;'
+            f'<div style="flex:1;min-width:0;background:{fundo};'
+            f'border-radius:8px;padding:4px 2px;text-align:center;'
+            f'line-height:1.15;">'
+            f'<div style="font-size:0.68rem;color:#555;">{titulo}</div>'
+            f'<div style="font-size:1.15rem;font-weight:700;'
             f'color:{cor};">{atual}/{meta}</div>'
-            f'<div style="font-size:0.72rem;color:{cor};">{msg}</div>'
+            f'<div style="font-size:0.65rem;color:{cor};">{msg}</div>'
             f'</div>'
         )
 
@@ -686,12 +696,6 @@ def mostrar_painel_kit(resumo):
         "Total",
         resumo["atual_total"],
         resumo["meta_total"],
-    )
-
-    st.markdown(
-        f'<div style="display:flex;gap:8px;margin:6px 0 8px 0;">'
-        f'{cartoes}</div>',
-        unsafe_allow_html=True,
     )
 
     faltam = []
@@ -714,24 +718,49 @@ def mostrar_painel_kit(resumo):
             sobram.append(f"{l['dif']} {nome}")
 
     if not faltam and not sobram:
-        st.success(
-            f"✅ Você completou a composição do "
-            f"{resumo['nome']}!"
+        mensagem = (
+            f"✅ Composição do {resumo['nome']} completa!"
         )
     else:
-        linhas_msg = []
+        partes = []
 
         if faltam:
-            linhas_msg.append(
-                "🔸 Ainda dá para escolher: " + ", ".join(faltam)
-            )
+            partes.append("🔸 Faltam: " + ", ".join(faltam))
 
         if sobram:
-            linhas_msg.append(
-                "🔹 Acima do kit: " + ", ".join(sobram)
-            )
+            partes.append("🔹 A mais: " + ", ".join(sobram))
 
-        st.info("  \n".join(linhas_msg))
+        mensagem = " &nbsp;|&nbsp; ".join(partes)
+
+    st.markdown(
+        f"""
+        <style>
+        div[data-testid="stElementContainer"]:has(.kit-fixo),
+        div[data-testid="element-container"]:has(.kit-fixo) {{
+            position: sticky;
+            top: {TOPO_PAINEL_FIXO};
+            z-index: 999;
+        }}
+        .kit-fixo {{
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 6px 8px 4px 8px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.18);
+            border: 1px solid #e6e6e6;
+        }}
+        </style>
+        <div class="kit-fixo">
+            <div style="font-size:0.72rem;color:#666;margin-bottom:3px;">
+                🎁 {html.escape(resumo['nome'])} · orientação (não bloqueia)
+            </div>
+            <div style="display:flex;gap:6px;">{cartoes}</div>
+            <div style="font-size:0.75rem;margin-top:4px;color:#333;">
+                {mensagem}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if resumo["extras"]:
         st.caption(
