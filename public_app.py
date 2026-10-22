@@ -38,6 +38,12 @@ if "pre_confirm_payload" not in st.session_state:
 if "show_confirm_dialog" not in st.session_state:
     st.session_state.show_confirm_dialog = False
 
+if "brinquedos_sel" not in st.session_state:
+    st.session_state.brinquedos_sel = set()
+
+if "pre_confirm_resumo" not in st.session_state:
+    st.session_state.pre_confirm_resumo = []
+
 if "pre_success" not in st.session_state:
     st.session_state.pre_success = False
 
@@ -509,6 +515,10 @@ def ocupados_no_dia(df):
 # =========================================================
 # CATÁLOGO VISUAL DE BRINQUEDOS
 # =========================================================
+# Quantos brinquedos por linha no computador (no celular são 3).
+# Para fotos maiores, diminua (ex.: 4). Para menores, aumente (ex.: 8).
+COLUNAS_POR_LINHA = 6
+
 ORDEM_SUB = ["G", "M", "P", "E"]
 
 TITULOS_SUB = {
@@ -517,6 +527,28 @@ TITULOS_SUB = {
     "P": "Pequenos (P)",
     "E": "Extras (E)",
 }
+
+# Chaves usadas no filtro e nos resumos
+TITULOS_GRUPO = {
+    "G": "🌿 Montessori · Grandes (G)",
+    "M": "🌿 Montessori · Médios (M)",
+    "P": "🌿 Montessori · Pequenos (P)",
+    "E": "🌿 Montessori · Extras (E)",
+    "OUT": "🌿 Montessori · Outros",
+    "TRAD": "🎪 Tradicional",
+}
+
+TITULOS_FILTRO = {
+    "TODOS": "Todos",
+    "G": "Grandes",
+    "M": "Médios",
+    "P": "Pequenos",
+    "E": "Extras",
+    "OUT": "Outros",
+    "TRAD": "Tradicional",
+}
+
+ORDEM_GRUPOS = ["G", "M", "P", "E", "OUT", "TRAD"]
 
 
 def nome_exibicao(nome: str) -> str:
@@ -537,54 +569,279 @@ def texto_seguro(valor) -> str:
     return str(valor).strip()
 
 
-def mostrar_card_brinquedo(linha, chave):
+def chave_grupo(categoria, subcategoria) -> str:
+    """
+    Devolve G, M, P, E, OUT (Montessori sem subcategoria)
+    ou TRAD (Tradicional / demais).
+    """
+    cat = texto_seguro(categoria).lower()
+    sub = texto_seguro(subcategoria).upper()
+
+    if cat.startswith("montessori"):
+        return sub if sub in ORDEM_SUB else "OUT"
+
+    return "TRAD"
+
+
+def css_catalogo():
+    st.markdown(
+        """
+        <style>
+        /* Grade de brinquedos: só afeta linhas que contêm fotos */
+        div[data-testid="stHorizontalBlock"]:has(.brq-img) {
+            flex-wrap: wrap !important;
+            gap: 0.5rem !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(.brq-img)
+            > div[data-testid="stColumn"],
+        div[data-testid="stHorizontalBlock"]:has(.brq-img)
+            > div[data-testid="column"] {
+            flex: 0 0 calc(100% / %(n)d - 0.5rem) !important;
+            width: calc(100%% / %(n)d - 0.5rem) !important;
+            min-width: calc(100%% / %(n)d - 0.5rem) !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(.brq-img) label p {
+            font-size: 0.72rem !important;
+            line-height: 1.15 !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(.brq-img)
+            div[data-testid="stCheckbox"] {
+            margin-top: -0.4rem;
+        }
+        .brq-img {
+            width: 100%%;
+            aspect-ratio: 1 / 1;
+            object-fit: contain;
+            background: #f6f6f6;
+            border-radius: 10px;
+            border: 3px solid transparent;
+            display: block;
+        }
+        .brq-img.sel {
+            border-color: #ff4b4b;
+            background: #fff5f5;
+        }
+        .brq-semfoto {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            font-size: 0.7rem;
+        }
+        @media (max-width: 640px) {
+            div[data-testid="stHorizontalBlock"]:has(.brq-img)
+                > div[data-testid="stColumn"],
+            div[data-testid="stHorizontalBlock"]:has(.brq-img)
+                > div[data-testid="column"] {
+                flex: 0 0 calc(100%% / 3 - 0.5rem) !important;
+                width: calc(100%% / 3 - 0.5rem) !important;
+                min-width: calc(100%% / 3 - 0.5rem) !important;
+            }
+        }
+        </style>
+        """.replace("calc(100% / %(n)d", "calc(100%% / %(n)d")
+        % {"n": COLUNAS_POR_LINHA},
+        unsafe_allow_html=True,
+    )
+
+
+def alternar_brinquedo(nome, chave):
+    """Callback do checkbox: mantém a seleção mesmo trocando de filtro."""
+    selecionados = st.session_state.brinquedos_sel
+
+    if st.session_state.get(chave):
+        selecionados.add(nome)
+    else:
+        selecionados.discard(nome)
+
+
+def mostrar_card_brinquedo(linha):
+    nome = linha["nome"]
+
+    identificador = texto_seguro(
+        linha.get("id_brinquedo")
+    ) or normalizar_nome(nome)
+
+    chave = f"brq_{identificador}"
+    marcado = nome in st.session_state.brinquedos_sel
+    classe = "brq-img sel" if marcado else "brq-img"
     url = texto_seguro(linha.get("imagem_url"))
 
     if url:
         st.markdown(
-            f'<img src="{html.escape(url, quote=True)}" '
-            'style="width:100%;aspect-ratio:1/1;'
-            'object-fit:cover;border-radius:12px;">',
+            f'<img class="{classe}" loading="lazy" '
+            f'src="{html.escape(url, quote=True)}" '
+            f'alt="{html.escape(nome_exibicao(nome), quote=True)}">',
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
-            '<div style="width:100%;aspect-ratio:1/1;'
-            'background:#eee;border-radius:12px;'
-            'display:flex;align-items:center;'
-            'justify-content:center;color:#888;">'
-            'Sem foto</div>',
+            f'<div class="{classe} brq-semfoto">Sem foto</div>',
             unsafe_allow_html=True,
         )
 
-    return st.checkbox(
-        nome_exibicao(linha["nome"]),
-        key=chave
+    st.checkbox(
+        nome_exibicao(nome),
+        value=marcado,
+        key=chave,
+        on_change=alternar_brinquedo,
+        args=(nome, chave),
     )
 
 
-def renderizar_grupo(df_grupo):
-    selecionados = []
+def renderizar_grade(df_grupo):
     linhas = df_grupo.to_dict("records")
 
-    for i in range(0, len(linhas), 2):
-        colunas = st.columns(2)
+    for i in range(0, len(linhas), COLUNAS_POR_LINHA):
+        bloco = linhas[i:i + COLUNAS_POR_LINHA]
+        colunas = st.columns(len(bloco))
 
-        for coluna, linha in zip(colunas, linhas[i:i + 2]):
-            identificador = texto_seguro(
-                linha.get("id_brinquedo")
-            ) or normalizar_nome(linha["nome"])
-
+        for coluna, linha in zip(colunas, bloco):
             with coluna:
-                marcado = mostrar_card_brinquedo(
-                    linha,
-                    f"brq_{identificador}"
-                )
+                mostrar_card_brinquedo(linha)
 
-            if marcado:
-                selecionados.append(linha["nome"])
 
-    return selecionados
+def agrupar_para_resumo(itens):
+    """
+    itens: lista de dicts com nome, categoria e subcategoria.
+    Retorna lista [(titulo_do_grupo, [nomes_para_exibir])].
+    """
+    grupos = {chave: [] for chave in ORDEM_GRUPOS}
+
+    for item in itens:
+        chave = chave_grupo(
+            item.get("categoria"),
+            item.get("subcategoria")
+        )
+        grupos[chave].append(
+            nome_exibicao(item.get("nome", ""))
+        )
+
+    return [
+        (TITULOS_GRUPO[chave], sorted(grupos[chave]))
+        for chave in ORDEM_GRUPOS
+        if grupos[chave]
+    ]
+
+
+def renderizar_catalogo(livres_df):
+    """
+    Catálogo com filtro. Fica FORA do st.form para que o filtro
+    atualize a tela na hora. Retorna a lista de nomes selecionados.
+    """
+    st.subheader("🎠 Escolha seus brinquedos")
+
+    if livres_df.empty:
+        st.info(
+            "Todos os brinquedos estão reservados "
+            "nessa data."
+        )
+        st.session_state.brinquedos_sel = set()
+        return [], []
+
+    css_catalogo()
+
+    df_cat = livres_df.copy()
+
+    for campo in ["categoria", "subcategoria", "imagem_url"]:
+        if campo not in df_cat.columns:
+            df_cat[campo] = ""
+
+    df_cat["grupo"] = [
+        chave_grupo(c, s)
+        for c, s in zip(df_cat["categoria"], df_cat["subcategoria"])
+    ]
+
+    df_cat["ordem_grupo"] = df_cat["grupo"].apply(
+        ORDEM_GRUPOS.index
+    )
+
+    df_cat = df_cat.sort_values(
+        ["ordem_grupo", "nome"]
+    ).reset_index(drop=True)
+
+    # Se a data mudou, remove da seleção o que ficou indisponível
+    nomes_livres = set(df_cat["nome"])
+    st.session_state.brinquedos_sel = (
+        st.session_state.brinquedos_sel & nomes_livres
+    )
+    selecionados = st.session_state.brinquedos_sel
+
+    # Contagem de selecionados por grupo (aparece no filtro)
+    selec_por_grupo = {chave: 0 for chave in ORDEM_GRUPOS}
+    for _, linha in df_cat.iterrows():
+        if linha["nome"] in selecionados:
+            selec_por_grupo[linha["grupo"]] += 1
+
+    grupos_existentes = [
+        chave for chave in ORDEM_GRUPOS
+        if (df_cat["grupo"] == chave).any()
+    ]
+
+    opcoes_filtro = ["TODOS"] + grupos_existentes
+
+    if st.session_state.get("filtro_brinquedos") not in opcoes_filtro:
+        st.session_state["filtro_brinquedos"] = "TODOS"
+
+    def rotulo_filtro(chave):
+        if chave == "TODOS":
+            total = len(selecionados)
+            qtd = (df_cat["nome"].notna()).sum()
+            texto = f"Todos ({qtd})"
+            return f"{texto} ✓{total}" if total else texto
+
+        qtd = int((df_cat["grupo"] == chave).sum())
+        texto = f"{TITULOS_FILTRO[chave]} ({qtd})"
+        marcados = selec_por_grupo.get(chave, 0)
+        return f"{texto} ✓{marcados}" if marcados else texto
+
+    filtro = st.radio(
+        "Filtrar por tamanho:",
+        options=opcoes_filtro,
+        format_func=rotulo_filtro,
+        horizontal=True,
+        key="filtro_brinquedos",
+    )
+
+    if selecionados:
+        st.caption(
+            f"✅ {len(selecionados)} brinquedo(s) selecionado(s). "
+            "Os escolhidos ficam com borda vermelha."
+        )
+    else:
+        st.caption(
+            "Toque na caixinha abaixo da foto para escolher."
+        )
+
+    grupos_mostrar = (
+        grupos_existentes if filtro == "TODOS" else [filtro]
+    )
+
+    for chave in grupos_mostrar:
+        grupo = df_cat[df_cat["grupo"] == chave]
+
+        if filtro == "TODOS" or chave == "OUT":
+            st.markdown(f"**{TITULOS_GRUPO[chave]}**")
+
+        renderizar_grade(grupo)
+
+    # Lista final, na ordem do catálogo
+    itens = [
+        nome for nome in df_cat["nome"]
+        if nome in selecionados
+    ]
+
+    resumo = [
+        {
+            "nome": linha["nome"],
+            "categoria": texto_seguro(linha["categoria"]),
+            "subcategoria": texto_seguro(linha["subcategoria"]),
+        }
+        for _, linha in df_cat.iterrows()
+        if linha["nome"] in selecionados
+    ]
+
+    return itens, resumo
 
 
 # =========================================================
@@ -1143,8 +1400,20 @@ def limpar_cliente_importado():
         if str(chave).startswith("brq_"):
             del st.session_state[chave]
 
+    st.session_state.brinquedos_sel = set()
+
     st.session_state.cliente_importado = False
     st.session_state.forms_registro_selecionado = None
+
+
+def formatar_data_br(valor) -> str:
+    try:
+        return datetime.strptime(
+            str(valor)[:10],
+            "%Y-%m-%d"
+        ).strftime("%d/%m/%Y")
+    except Exception:
+        return str(valor)
 
 
 # =========================================================
@@ -1168,14 +1437,14 @@ def open_confirm_dialog():
     with colA:
         st.markdown(
             "**Data do evento:** "
-            + str(reg.get("data", ""))
+            + formatar_data_br(reg.get("data", ""))
         )
 
         st.markdown(
             "**Horário:** "
             + (
-                f"{reg.get('hora_inicio', '')} "
-                f"– {reg.get('hora_fim', '')}"
+                f"{str(reg.get('hora_inicio', ''))[:5]} "
+                f"às {str(reg.get('hora_fim', ''))[:5]}"
             )
         )
 
@@ -1210,11 +1479,25 @@ def open_confirm_dialog():
             + endereco_confirmacao
         )
 
-    st.markdown(
-        "**🎠 Brinquedos selecionados:**"
-    )
+    resumo = st.session_state.get("pre_confirm_resumo") or []
 
-    if reg.get("brinquedos"):
+    if resumo:
+        st.markdown(
+            f"**🎠 Brinquedos selecionados "
+            f"({len(resumo)}):**"
+        )
+
+        for titulo, nomes in agrupar_para_resumo(resumo):
+            st.markdown(f"**{titulo}** · {len(nomes)}")
+            st.markdown(
+                "\n".join(f"- {n}" for n in nomes)
+            )
+
+    elif reg.get("brinquedos"):
+        st.markdown(
+            "**🎠 Brinquedos selecionados:**"
+        )
+
         itens = [
             item.strip()
             for item in str(
@@ -1223,10 +1506,12 @@ def open_confirm_dialog():
             if item.strip()
         ]
 
-        st.write(
-            ", ".join(itens)
-        )
+        st.write(", ".join(itens))
+
     else:
+        st.markdown(
+            "**🎠 Brinquedos selecionados:**"
+        )
         st.write("—")
 
     if reg.get("observacao"):
@@ -1644,6 +1929,16 @@ else:
 
 
 # =========================================================
+# CATÁLOGO DE BRINQUEDOS (fora do formulário, com filtro)
+# =========================================================
+itens_selecionados, resumo_selecionados = renderizar_catalogo(
+    livres_df
+)
+
+st.divider()
+
+
+# =========================================================
 # FORMULÁRIO PRINCIPAL
 # =========================================================
 with st.form("form_publico"):
@@ -1816,72 +2111,9 @@ with st.form("form_publico"):
             key="form_hora_fim"
         )
 
-    st.subheader("🎠 Escolha seus brinquedos")
-
-    itens_selecionados = []
-
-    if livres_df.empty:
-        st.info(
-            "Todos os brinquedos estão reservados "
-            "nessa data."
-        )
-
-    else:
-        df_cat = livres_df.copy()
-
-        for campo in ["categoria", "subcategoria"]:
-            if campo not in df_cat.columns:
-                df_cat[campo] = ""
-
-        df_cat["categoria"] = (
-            df_cat["categoria"]
-            .fillna("").astype(str).str.strip()
-        )
-        df_cat["subcategoria"] = (
-            df_cat["subcategoria"]
-            .fillna("").astype(str).str.strip().str.upper()
-        )
-
-        eh_montessori = (
-            df_cat["categoria"]
-            .str.lower()
-            .str.startswith("montessori")
-        )
-
-        montessori = df_cat[eh_montessori]
-        tradicional = df_cat[~eh_montessori]
-
-        if not montessori.empty:
-            st.markdown("### 🌿 Montessori")
-
-            for sub in ORDEM_SUB:
-                grupo = montessori[
-                    montessori["subcategoria"] == sub
-                ].sort_values("nome")
-
-                if not grupo.empty:
-                    st.markdown(
-                        f"**{TITULOS_SUB[sub]}**"
-                    )
-                    itens_selecionados += renderizar_grupo(
-                        grupo
-                    )
-
-            sem_sub = montessori[
-                ~montessori["subcategoria"].isin(ORDEM_SUB)
-            ]
-
-            if not sem_sub.empty:
-                st.markdown("**Outros**")
-                itens_selecionados += renderizar_grupo(
-                    sem_sub.sort_values("nome")
-                )
-
-        if not tradicional.empty:
-            st.markdown("### 🎪 Tradicional")
-            itens_selecionados += renderizar_grupo(
-                tradicional.sort_values("nome")
-            )
+    st.caption(
+        f"🎠 Brinquedos escolhidos: {len(itens_selecionados)}"
+    )
 
     enviar_clicado = st.form_submit_button(
         "💾 Enviar solicitação"
@@ -1951,6 +2183,8 @@ if enviar_clicado:
         "nome_aniv": nome_aniv,
         "idade": idade,
     }
+
+    st.session_state.pre_confirm_resumo = resumo_selecionados
 
     st.session_state.show_confirm_dialog = True
 
