@@ -924,7 +924,30 @@ div[data-testid="stHorizontalBlock"]:has(.brq-img)
 }
 </style>
 """
-
+/* Nome completo do brinquedo: quebra em até 3 linhas em vez de cortar com "..." */
+div[data-testid="stHorizontalBlock"]:has(.brq-img) div[data-testid="stCheckbox"] label,
+div[data-testid="stHorizontalBlock"]:has(.brq-img) div[data-testid="stCheckbox"] label > div,
+div[data-testid="stHorizontalBlock"]:has(.brq-img) div[data-testid="stCheckbox"] [data-testid="stWidgetLabel"],
+div[data-testid="stHorizontalBlock"]:has(.brq-img) div[data-testid="stCheckbox"] [data-testid="stMarkdownContainer"],
+div[data-testid="stHorizontalBlock"]:has(.brq-img) div[data-testid="stCheckbox"] .stMarkdownEllipsis {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
+}
+div[data-testid="stHorizontalBlock"]:has(.brq-img) div[data-testid="stCheckbox"] label {
+    align-items: flex-start !important;
+}
+div[data-testid="stHorizontalBlock"]:has(.brq-img) div[data-testid="stCheckbox"] label p {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    overflow-wrap: anywhere;
+    display: block !important;
+    -webkit-line-clamp: unset !important;
+    line-height: 1.15 !important;
+}
 
 def css_catalogo():
     st.markdown(
